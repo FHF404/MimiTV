@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#0f172a">
-    <title>CloudStream IPTV</title>
+    <title>Mimi TV</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -57,8 +57,8 @@
     "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
     "lucide-react": "https://esm.sh/lucide-react@0.263.1",
     "hls.js": "https://esm.sh/hls.js@1.4.10",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0"
   }
 }
@@ -73,7 +73,8 @@
         import { 
             Search, Tv, Filter, Wifi, WifiOff, CheckCircle2, RotateCw, 
             Settings, Link as LinkIcon, X, Star, ShieldAlert, Copy, Check, 
-            Menu, Loader2, RefreshCw, Volume2, VolumeX, Maximize2, AlertCircle 
+            Menu, Loader2, RefreshCw, Volume2, VolumeX, Maximize2, AlertCircle,
+            Plus, Trash2, Power, Edit2
         } from 'lucide-react';
         import Hls from 'hls.js';
 
@@ -386,15 +387,19 @@
 
         const ChannelList = ({ 
             channels, favorites, groups, selectedChannel, onSelectChannel, onToggleFavorite, 
-            isOpen, setIsOpen, channelStatuses, onCheckConnectivity, isChecking, onUpdateSource 
+            isOpen, setIsOpen, channelStatuses, onCheckConnectivity, isChecking, 
+            playlists, onAddPlaylist, onRemovePlaylist, onTogglePlaylist 
         }) => {
             const [searchTerm, setSearchTerm] = useState('');
             const [activeGroup, setActiveGroup] = useState('All');
             const [hideOffline, setHideOffline] = useState(false);
             const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
-            const [sourceUrlInput, setSourceUrlInput] = useState('');
             const [copiedId, setCopiedId] = useState(null);
             const isSecurePage = window.location.protocol === 'https:';
+
+            // New Source Input State
+            const [newSourceName, setNewSourceName] = useState('');
+            const [newSourceUrl, setNewSourceUrl] = useState('');
 
             useEffect(() => {
                 if (favorites.length > 0) setActiveGroup('Favorites');
@@ -430,24 +435,27 @@
 
             useMemo(() => setVisibleCount(50), [activeGroup, searchTerm, hideOffline]);
 
-            const handleSourceSubmit = (e) => {
+            const handleAddSource = (e) => {
                 e.preventDefault();
-                if (sourceUrlInput.trim()) {
-                    onUpdateSource(sourceUrlInput.trim());
-                    setIsSourceModalOpen(false);
-                    setSourceUrlInput('');
+                if (newSourceName.trim() && newSourceUrl.trim()) {
+                    onAddPlaylist(newSourceName.trim(), newSourceUrl.trim());
+                    setNewSourceName('');
+                    setNewSourceUrl('');
                 }
             };
 
             const handleCopy = (e, channel) => {
                 e.stopPropagation();
+                // If ID is generated (prefixed by playlist ID or gen-), fallback to name if possible but usually we just want to copy the metadata
+                // We will strip the playlist prefix if it exists to make the copied M3U clean
                 
-                // Construct standard M3U entry format
-                const tvgId = channel.id.startsWith('gen-') ? channel.name : channel.id;
+                // Original ID logic: playlistID-channelID. 
+                // We want to copy something usable.
+                const cleanId = channel.id.includes('-gen-') ? channel.name : channel.id;
                 
                 const parts = [
                     `#EXTINF:-1`,
-                    `tvg-id="${tvgId}"`,
+                    `tvg-id="${cleanId}"`,
                     `tvg-name="${channel.name}"`,
                     `tvg-logo="${channel.logo || ''}"`,
                     `group-title="${channel.group || ''}",${channel.name}`
@@ -478,40 +486,87 @@
 
                     {isSourceModalOpen && (
                         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-                            <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-md p-6 relative">
+                            <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-2xl p-6 relative flex flex-col max-h-[85vh]">
                                 <button onClick={() => setIsSourceModalOpen(false)} className="absolute top-4 right-4 text-slate-500 hover:text-slate-300">
                                     <X size={20} />
                                 </button>
                                 
-                                <div className="flex items-center gap-3 mb-6">
+                                <div className="flex items-center gap-3 mb-6 shrink-0">
                                     <div className="p-3 bg-blue-600/20 rounded-full">
-                                        <LinkIcon className="w-6 h-6 text-blue-500" />
+                                        <Settings className="w-6 h-6 text-blue-500" />
                                     </div>
                                     <div>
-                                        <h3 className="text-lg font-bold text-white">Change Playlist Source</h3>
-                                        <p className="text-xs text-slate-400">Enter a URL to a remote .m3u or .m3u8 file</p>
+                                        <h3 className="text-lg font-bold text-white">Manage Playlist Sources</h3>
+                                        <p className="text-xs text-slate-400">Add, remove, or toggle multiple IPTV sources</p>
                                     </div>
                                 </div>
 
-                                <form onSubmit={handleSourceSubmit} className="space-y-4">
-                                    <input 
-                                        type="url" 
-                                        placeholder="https://example.com/playlist.m3u"
-                                        value={sourceUrlInput}
-                                        onChange={(e) => setSourceUrlInput(e.target.value)}
-                                        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-slate-600"
-                                        autoFocus
-                                        required
-                                    />
-                                    <div className="flex gap-3 pt-2">
-                                        <button type="button" onClick={() => setIsSourceModalOpen(false)} className="flex-1 py-2.5 rounded-lg bg-slate-800 text-slate-300 text-sm font-medium hover:bg-slate-700 transition-colors">
-                                            Cancel
+                                {/* List of Sources */}
+                                <div className="flex-1 overflow-y-auto mb-6 pr-2 space-y-3 custom-scrollbar">
+                                    {playlists.length === 0 && (
+                                        <div className="text-center py-8 text-slate-500 border border-dashed border-slate-700 rounded-lg">
+                                            No playlists added. Add one below.
+                                        </div>
+                                    )}
+                                    {playlists.map(pl => (
+                                        <div key={pl.id} className="flex items-center gap-3 p-3 bg-slate-950 border border-slate-800 rounded-lg group hover:border-slate-700 transition-colors">
+                                            <button 
+                                                onClick={() => onTogglePlaylist(pl.id)}
+                                                className={`p-2 rounded-lg transition-colors ${pl.active ? 'bg-green-500/20 text-green-400' : 'bg-slate-800 text-slate-500'}`}
+                                                title={pl.active ? "Enabled" : "Disabled"}
+                                            >
+                                                <Power size={18} />
+                                            </button>
+                                            
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2">
+                                                    <h4 className={`font-medium text-sm truncate ${pl.active ? 'text-white' : 'text-slate-500'}`}>{pl.name}</h4>
+                                                    {!pl.active && <span className="text-[10px] bg-slate-800 px-1.5 rounded text-slate-500">Disabled</span>}
+                                                </div>
+                                                <p className="text-xs text-slate-600 truncate">{pl.url}</p>
+                                            </div>
+
+                                            <button 
+                                                onClick={() => onRemovePlaylist(pl.id)}
+                                                className="p-2 text-slate-500 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors"
+                                                title="Remove Source"
+                                            >
+                                                <Trash2 size={18} />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Add New Source Form */}
+                                <div className="shrink-0 bg-slate-950 p-4 rounded-xl border border-slate-800">
+                                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Add New Source</h4>
+                                    <form onSubmit={handleAddSource} className="flex flex-col gap-3">
+                                        <div className="flex gap-3">
+                                            <input 
+                                                type="text" 
+                                                placeholder="Source Name (e.g. My Sports)"
+                                                value={newSourceName}
+                                                onChange={(e) => setNewSourceName(e.target.value)}
+                                                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                                                required
+                                            />
+                                        </div>
+                                        <input 
+                                            type="url" 
+                                            placeholder="Playlist URL (https://...)"
+                                            value={newSourceUrl}
+                                            onChange={(e) => setNewSourceUrl(e.target.value)}
+                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                                            required
+                                        />
+                                        <button 
+                                            type="submit"
+                                            className="w-full py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                                        >
+                                            <Plus size={16} /> Add Playlist
                                         </button>
-                                        <button type="submit" className="flex-1 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors">
-                                            Load Playlist
-                                        </button>
-                                    </div>
-                                </form>
+                                    </form>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -528,10 +583,10 @@
                                     <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
                                         <Tv className="text-white w-5 h-5" />
                                     </div>
-                                    <h1 className="font-bold text-xl text-white tracking-tight">CloudStream</h1>
+                                    <h1 className="font-bold text-xl text-white tracking-tight">Mini TV 🐮</h1>
                                 </div>
                                 
-                                <button onClick={() => setIsSourceModalOpen(true)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors" title="Change Source">
+                                <button onClick={() => setIsSourceModalOpen(true)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors" title="Manage Sources">
                                     <Settings className="w-4 h-4" />
                                 </button>
                             </div>
@@ -725,21 +780,53 @@
 
         // --- APP ---
 
-        const DEFAULT_PLAYLIST = '/Tv.m3u';
+        const DEFAULT_PLAYLIST = 'https://raw.githubusercontent.com/Guovin/iptv-api/gd/output/result.m3u';
         const FAVORITES_KEY = 'iptv_favorites_v1';
-        const PLAYLIST_URL_KEY = 'iptv_playlist_url_v1';
+        const PLAYLISTS_KEY = 'iptv_playlists_v1';
 
         const App = () => {
-            const [playlistUrl, setPlaylistUrl] = useState(() => {
-                return localStorage.getItem(PLAYLIST_URL_KEY) || DEFAULT_PLAYLIST;
+            // Playlist Management
+            const [playlists, setPlaylists] = useState(() => {
+                const saved = localStorage.getItem(PLAYLISTS_KEY);
+                return saved ? JSON.parse(saved) : [
+                    { id: 'default', name: 'Default Source', url: DEFAULT_PLAYLIST, active: true }
+                ];
             });
 
+            // Save playlists persistence
+            useEffect(() => {
+                localStorage.setItem(PLAYLISTS_KEY, JSON.stringify(playlists));
+            }, [playlists]);
+
+            const addPlaylist = (name, url) => {
+                const newPlaylist = {
+                    id: `pl-${Date.now()}`,
+                    name,
+                    url,
+                    active: true
+                };
+                setPlaylists(prev => [...prev, newPlaylist]);
+            };
+
+            const removePlaylist = (id) => {
+                setPlaylists(prev => prev.filter(p => p.id !== id));
+            };
+
+            const togglePlaylist = (id) => {
+                setPlaylists(prev => prev.map(p => 
+                    p.id === id ? { ...p, active: !p.active } : p
+                ));
+            };
+
             const [channels, setChannels] = useState([]);
+            
+            // Favorites State
             const [favorites, setFavorites] = useState(() => {
                 try {
                     const saved = localStorage.getItem(FAVORITES_KEY);
                     return saved ? JSON.parse(saved) : [];
                 } catch (e) {
+                    console.error("Failed to load favorites", e);
                     return [];
                 }
             });
@@ -757,18 +844,17 @@
                 localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
             }, [favorites]);
 
-            useEffect(() => {
-                localStorage.setItem(PLAYLIST_URL_KEY, playlistUrl);
-            }, [playlistUrl]);
-
             const toggleFavorite = (channel) => {
                 setFavorites(prev => {
                     const exists = prev.some(f => f.url === channel.url);
-                    if (exists) return prev.filter(f => f.url !== channel.url);
+                    if (exists) {
+                        return prev.filter(f => f.url !== channel.url);
+                    }
                     return [...prev, channel];
                 });
             };
 
+            // Connectivity Checker Logic
             const checkConnectivity = async (channelsToCheck) => {
                 if (isChecking && abortControllerRef.current) {
                     abortControllerRef.current.abort();
@@ -835,21 +921,48 @@
                 window.addEventListener('offline', handleOffline);
 
                 const loadChannels = async () => {
+                    setLoading(true);
+                    setError(null);
+                    setChannels([]);
+                    
                     try {
-                        setLoading(true);
-                        setError(null);
-                        setChannels([]);
+                        // Get active playlists
+                        const activePlaylists = playlists.filter(p => p.active);
                         
-                        const data = await fetchAndParseM3U(playlistUrl);
-                        setChannels(data);
-                        
-                        const allChannelsToCheck = [...favorites, ...data];
+                        if (activePlaylists.length === 0) {
+                            setLoading(false);
+                            return;
+                        }
+
+                        // Fetch all in parallel
+                        const promises = activePlaylists.map(playlist => 
+                            fetchAndParseM3U(playlist.url)
+                                .then(items => items.map(item => ({
+                                    ...item,
+                                    // Prefix ID to prevent collisions between playlists
+                                    id: `${playlist.id}-${item.id}`,
+                                    // Optional: You could append playlist name to group, e.g.
+                                    // group: `${item.group} (${playlist.name})`
+                                })))
+                                .catch(err => {
+                                    console.warn(`Failed to load playlist: ${playlist.name}`, err);
+                                    return []; // Return empty array on failure so others can still load
+                                })
+                        );
+
+                        const results = await Promise.all(promises);
+                        // Flatten arrays
+                        const mergedChannels = results.flat();
+                        setChannels(mergedChannels);
+
+                        // Connectivity Check
+                        const allChannelsToCheck = [...favorites, ...mergedChannels];
                         if (allChannelsToCheck.length > 0) {
                             checkConnectivity(allChannelsToCheck);
                         }
 
                     } catch (err) {
-                        setError("Failed to load channel list. Please check the URL or your internet connection.");
+                        setError("Failed to load channels. Please check your internet connection.");
                     } finally {
                         setLoading(false);
                     }
@@ -870,7 +983,7 @@
                     window.removeEventListener('offline', handleOffline);
                     if (abortControllerRef.current) abortControllerRef.current.abort();
                 };
-            }, [playlistUrl]);
+            }, [playlists]); // Reload when playlists change
 
             const groups = useMemo(() => extractGroups(channels), [channels]);
 
@@ -900,7 +1013,13 @@
                         channelStatuses={channelStatuses}
                         onCheckConnectivity={checkConnectivity}
                         isChecking={isChecking}
-                        onUpdateSource={setPlaylistUrl}
+                        
+                        // New Props for Playlist Management
+                        playlists={playlists}
+                        onAddPlaylist={addPlaylist}
+                        onRemovePlaylist={removePlaylist}
+                        onTogglePlaylist={togglePlaylist}
+                        onUpdateSource={() => {}} // Deprecated but keeping for prop compatibility if needed
                     />
 
                     <div className="flex-1 flex flex-col relative min-w-0">
@@ -919,7 +1038,7 @@
                             {loading ? (
                                 <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
                                     <Loader2 className="w-10 h-10 animate-spin mb-4 text-blue-500" />
-                                    <p className="animate-pulse">Loading Playlist...</p>
+                                    <p className="animate-pulse">Loading Playlists...</p>
                                 </div>
                             ) : error ? (
                                 <div className="absolute inset-0 flex flex-col items-center justify-center text-red-400 p-8 text-center">
@@ -927,10 +1046,10 @@
                                     <h2 className="text-xl font-bold mb-2">Connection Failed</h2>
                                     <p>{error}</p>
                                     <button 
-                                        onClick={() => setPlaylistUrl(DEFAULT_PLAYLIST)} 
+                                        onClick={() => window.location.reload()} 
                                         className="mt-6 px-6 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition-colors"
                                     >
-                                        Reset to Default Source
+                                        Reload App
                                     </button>
                                 </div>
                             ) : (
