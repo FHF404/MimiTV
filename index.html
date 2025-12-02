@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0f172a">
+    <title>CloudStream IPTV</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Babel for JSX compilation in browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #0f172a; /* slate-900 */
+        color: #e2e8f0; /* slate-200 */
+        overflow: hidden; /* App handles scrolling */
+      }
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #1e293b; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #475569; 
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #64748b; 
+      }
+      /* Utilities */
+      .no-scrollbar::-webkit-scrollbar {
+          display: none;
+      }
+      .no-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+      }
+    </style>
+
+    <!-- Import Map for Modules -->
+    <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "lucide-react": "https://esm.sh/lucide-react@0.263.1",
+    "hls.js": "https://esm.sh/hls.js@1.4.10",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0"
+  }
+}
+</script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef, useMemo } from 'react';
+        import ReactDOM from 'react-dom/client';
+        import { 
+            Search, Tv, Filter, Wifi, WifiOff, CheckCircle2, RotateCw, 
+            Settings, Link as LinkIcon, X, Star, ShieldAlert, Copy, Check, 
+            Menu, Loader2, RefreshCw, Volume2, VolumeX, Maximize2, AlertCircle 
+        } from 'lucide-react';
+        import Hls from 'hls.js';
+
+        // --- SERVICES ---
+
+        // Simple hash function to generate stable IDs from URLs
+        const simpleHash = (str) => {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                const char = str.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash; // Convert to 32bit integer
+            }
+            return `gen-${Math.abs(hash)}`;
+        };
+
+        const parseM3U = (content) => {
+            const lines = content.split('\n');
+            const channels = [];
+            let currentChannel = {};
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+
+                if (line.startsWith('#EXTINF:')) {
+                    const infoMatch = line.match(/#EXTINF:(-?\d+)(.*),(.*)$/);
+                    if (infoMatch) {
+                        const attributes = infoMatch[2];
+                        const name = infoMatch[3].trim();
+                        
+                        const groupMatch = attributes.match(/group-title="([^"]*)"/);
+                        const group = groupMatch ? groupMatch[1] : 'Uncategorized';
+
+                        const logoMatch = attributes.match(/tvg-logo="([^"]*)"/);
+                        const logo = logoMatch ? logoMatch[1] : undefined;
+
+                        const idMatch = attributes.match(/tvg-id="([^"]*)"/);
+                        
+                        currentChannel = { name, group, logo, id: idMatch ? idMatch[1] : undefined };
+                    }
+                } else if (line.startsWith('http')) {
+                    if (line.length < 10 || line.startsWith('rtmp') || line.startsWith('rtsp')) {
+                        currentChannel = {};
+                        continue;
+                    }
+
+                    if (currentChannel.name) {
+                        const finalId = currentChannel.id || simpleHash(line);
+                        channels.push({
+                            ...currentChannel,
+                            id: finalId, 
+                            url: line
+                        });
+                        currentChannel = {}; 
+                    }
+                }
+            }
+            return channels;
+        };
+
+        const fetchAndParseM3U = async (url) => {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`Failed to fetch playlist: ${response.statusText}`);
+                const text = await response.text();
+                return parseM3U(text);
+            } catch (error) {
+                console.error("M3U Fetch Error:", error);
+                throw error;
+            }
+        };
+
+        const extractGroups = (channels) => {
+            const groups = {};
+            channels.forEach(ch => {
+                const g = ch.group || 'Other';
+                groups[g] = (groups[g] || 0) + 1;
+            });
+            return Object.entries(groups)
+                .map(([name, count]) => ({ name, count }))
+                .sort((a, b) => b.count - a.count);
+        };
+
+        // --- COMPONENTS ---
+
+        const VideoPlayer = ({ url, poster, channelName, onError, onSuccess }) => {
+            const videoRef = useRef(null);
+            const hlsRef = useRef(null);
+            const [error, setError] = useState(null);
+            const [isMixedContentError, setIsMixedContentError] = useState(false);
+            const [loading, setLoading] = useState(false);
+            const [isPlaying, setIsPlaying] = useState(false);
+            const [isMuted, setIsMuted] = useState(false);
+
+            useEffect(() => {
+                setError(null);
+                setIsMixedContentError(false);
+                setLoading(true);
+                setIsPlaying(false);
+
+                const video = videoRef.current;
+                if (!video) return;
+
+                if (!url) {
+                    setLoading(false);
+                    return;
+                }
+
+                const isPageHttps = window.location.protocol === 'https:';
+                const isStreamHttp = url.startsWith('http:');
+                const likelyMixedContent = isPageHttps && isStreamHttp;
+
+                const loadStream = () => {
+                    if (Hls.isSupported()) {
+                        if (hlsRef.current) hlsRef.current.destroy();
+
+                        const hls = new Hls({
+                            enableWorker: true,
+                            lowLatencyMode: true,
+                            backBufferLength: 90,
+                        });
+                        
+                        hlsRef.current = hls;
+                        hls.loadSource(url);
+                        hls.attachMedia(video);
+
+                        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                            setLoading(false);
+                            onSuccess?.();
+                            video.play().catch(e => console.warn("Autoplay blocked", e));
+                        });
+
+                        hls.on(Hls.Events.ERROR, (event, data) => {
+                            if (data.fatal) {
+                                setLoading(false);
+                                if (likelyMixedContent) {
+                                    setIsMixedContentError(true);
+                                    setError("Security Error: This secure (HTTPS) page cannot play insecure (HTTP) video streams.");
+                                    onError?.();
+                                    hls.destroy();
+                                    return;
+                                }
+
+                                switch (data.type) {
+                                    case Hls.ErrorTypes.NETWORK_ERROR:
+                                        setError("Network error: Unable to connect to stream.");
+                                        onError?.();
+                                        hls.startLoad();
+                                        break;
+                                    case Hls.ErrorTypes.MEDIA_ERROR:
+                                        setError("Media error: Stream format issue.");
+                                        onError?.();
+                                        hls.recoverMediaError();
+                                        break;
+                                    default:
+                                        hls.destroy();
+                                        setError("Stream is currently offline or incompatible.");
+                                        onError?.();
+                                        break;
+                                }
+                            }
+                        });
+                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                        video.src = url;
+                        video.addEventListener('loadedmetadata', () => {
+                            setLoading(false);
+                            onSuccess?.();
+                            video.play().catch(() => {});
+                        });
+                        video.addEventListener('error', () => {
+                            setLoading(false);
+                            if (likelyMixedContent) {
+                                setIsMixedContentError(true);
+                                setError("Security Error: Browser blocked HTTP stream.");
+                            } else {
+                                setError("Native playback error.");
+                            }
+                            onError?.();
+                        });
+                    } else {
+                        setLoading(false);
+                        setError("Your browser does not support HLS playback.");
+                        onError?.();
+                    }
+                };
+
+                loadStream();
+
+                return () => {
+                    if (hlsRef.current) hlsRef.current.destroy();
+                };
+            }, [url]);
+
+            const toggleMute = () => {
+                if (videoRef.current) {
+                    videoRef.current.muted = !videoRef.current.muted;
+                    setIsMuted(videoRef.current.muted);
+                }
+            };
+
+            const toggleFullScreen = () => {
+                if (videoRef.current) {
+                    if (document.fullscreenElement) {
+                        document.exitFullscreen();
+                    } else {
+                        videoRef.current.requestFullscreen();
+                    }
+                }
+            };
+
+            const reloadStream = () => {
+                if (url) {
+                    setError(null);
+                    setIsMixedContentError(false);
+                    setLoading(true);
+                    if (hlsRef.current) {
+                        hlsRef.current.loadSource(url);
+                        hlsRef.current.attachMedia(videoRef.current);
+                    } else {
+                        const video = videoRef.current;
+                        if(video) video.src = url;
+                    }
+                }
+            };
+
+            if (!url) {
+                return (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-black text-slate-500">
+                        <div className="w-20 h-20 mb-4 rounded-full bg-slate-800 flex items-center justify-center animate-pulse">
+                            <Maximize2 className="w-8 h-8 opacity-50"/>
+                        </div>
+                        <p className="text-lg font-medium">Select a channel to start watching</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="relative w-full h-full bg-black group overflow-hidden flex flex-col justify-center">
+                    {loading && (
+                        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                            <Loader2 className="w-10 h-10 text-blue-500 animate-spin" />
+                            <span className="ml-3 text-white font-medium">Loading Stream...</span>
+                        </div>
+                    )}
+
+                    {error && (
+                        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/80 text-white p-6 text-center">
+                            {isMixedContentError ? (
+                                <div className="max-w-md bg-slate-900 border border-red-500/50 p-6 rounded-xl shadow-2xl">
+                                    <ShieldAlert className="w-12 h-12 text-red-500 mx-auto mb-4" />
+                                    <h3 className="text-xl font-bold mb-2">Security Block</h3>
+                                    <p className="text-slate-300 mb-4 text-sm">
+                                        This page is secure (HTTPS) but the video stream is not (HTTP). Modern browsers block this for security.
+                                    </p>
+                                    <div className="text-left text-xs text-slate-400 bg-black/50 p-3 rounded mb-4">
+                                        <strong>How to fix:</strong><br/>
+                                        1. Look for a shield icon or "Not Secure" in your address bar.<br/>
+                                        2. Click "Site Settings" or the icon.<br/>
+                                        3. Allow "Insecure Content" or "Mixed Content".
+                                    </div>
+                                    <p className="text-xs text-slate-500 italic mb-4">Or use a local server instead of GitHub Pages.</p>
+                                </div>
+                            ) : (
+                                <>
+                                    <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
+                                    <h3 className="text-xl font-bold mb-2">Stream Error</h3>
+                                    <p className="text-slate-300 mb-6 max-w-md">{error}</p>
+                                    <button 
+                                        onClick={reloadStream}
+                                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-medium"
+                                    >
+                                        <RefreshCw className="w-4 h-4" /> Try Again
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    <video
+                        ref={videoRef}
+                        className="w-full h-full object-contain"
+                        poster={poster || "https://picsum.photos/1920/1080?blur=10"}
+                        playsInline
+                        onPlay={() => setIsPlaying(true)}
+                        onPause={() => setIsPlaying(false)}
+                        controlsList="nodownload" 
+                    />
+                    
+                    <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/90 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center gap-4 z-10 pointer-events-none">
+                        <div className="pointer-events-auto flex items-center gap-4 w-full">
+                            <div className="flex-1">
+                                <h2 className="text-white font-bold text-lg drop-shadow-md truncate">{channelName || "Unknown Channel"}</h2>
+                                <div className="flex items-center gap-2 text-xs text-slate-300">
+                                   <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                                   LIVE
+                                </div>
+                            </div>
+
+                            <button onClick={toggleMute} className="p-2 text-white hover:bg-white/20 rounded-full transition-colors">
+                                {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                            </button>
+                            <button onClick={toggleFullScreen} className="p-2 text-white hover:bg-white/20 rounded-full transition-colors">
+                                <Maximize2 size={20} />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ChannelList = ({ 
+            channels, favorites, groups, selectedChannel, onSelectChannel, onToggleFavorite, 
+            isOpen, setIsOpen, channelStatuses, onCheckConnectivity, isChecking, onUpdateSource 
+        }) => {
+            const [searchTerm, setSearchTerm] = useState('');
+            const [activeGroup, setActiveGroup] = useState('All');
+            const [hideOffline, setHideOffline] = useState(false);
+            const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
+            const [sourceUrlInput, setSourceUrlInput] = useState('');
+            const [copiedId, setCopiedId] = useState(null);
+            const isSecurePage = window.location.protocol === 'https:';
+
+            useEffect(() => {
+                if (favorites.length > 0) setActiveGroup('Favorites');
+            }, []);
+
+            const filteredChannels = useMemo(() => {
+                let result = [];
+                if (activeGroup === 'Favorites') result = favorites;
+                else if (activeGroup === 'All') result = channels;
+                else result = channels.filter(ch => ch.group === activeGroup);
+
+                if (searchTerm) {
+                    const lower = searchTerm.toLowerCase();
+                    result = result.filter(ch => ch.name.toLowerCase().includes(lower));
+                }
+
+                if (hideOffline) {
+                    result = result.filter(ch => channelStatuses[ch.id] !== 'offline');
+                }
+                return result;
+            }, [channels, favorites, activeGroup, searchTerm, hideOffline, channelStatuses]);
+
+            const [visibleCount, setVisibleCount] = useState(50);
+            
+            const handleScroll = (e) => {
+                const { scrollTop, clientHeight, scrollHeight } = e.currentTarget;
+                if (scrollHeight - scrollTop - clientHeight < 300) {
+                    if (visibleCount < filteredChannels.length) {
+                        setVisibleCount(prev => Math.min(prev + 50, filteredChannels.length));
+                    }
+                }
+            };
+
+            useMemo(() => setVisibleCount(50), [activeGroup, searchTerm, hideOffline]);
+
+            const handleSourceSubmit = (e) => {
+                e.preventDefault();
+                if (sourceUrlInput.trim()) {
+                    onUpdateSource(sourceUrlInput.trim());
+                    setIsSourceModalOpen(false);
+                    setSourceUrlInput('');
+                }
+            };
+
+            const handleCopy = (e, channel) => {
+                e.stopPropagation();
+                
+                // Construct standard M3U entry format
+                const tvgId = channel.id.startsWith('gen-') ? channel.name : channel.id;
+                
+                const parts = [
+                    `#EXTINF:-1`,
+                    `tvg-id="${tvgId}"`,
+                    `tvg-name="${channel.name}"`,
+                    `tvg-logo="${channel.logo || ''}"`,
+                    `group-title="${channel.group || ''}",${channel.name}`
+                ];
+                
+                const m3uEntry = `${parts.join(' ')}\n${channel.url}`;
+
+                navigator.clipboard.writeText(m3uEntry).then(() => {
+                    setCopiedId(channel.id);
+                    setTimeout(() => setCopiedId(null), 2000);
+                });
+            };
+
+            const getStatusIcon = (status) => {
+                switch(status) {
+                    case 'online': return <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />;
+                    case 'offline': return <WifiOff className="w-3.5 h-3.5 text-red-500" />;
+                    case 'testing': return <RotateCw className="w-3.5 h-3.5 text-yellow-500 animate-spin" />;
+                    default: return <div className="w-2 h-2 rounded-full bg-slate-700" />;
+                }
+            };
+
+            return (
+                <>
+                    {isOpen && (
+                        <div className="fixed inset-0 bg-black/80 z-40 md:hidden" onClick={() => setIsOpen(false)} />
+                    )}
+
+                    {isSourceModalOpen && (
+                        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+                            <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-md p-6 relative">
+                                <button onClick={() => setIsSourceModalOpen(false)} className="absolute top-4 right-4 text-slate-500 hover:text-slate-300">
+                                    <X size={20} />
+                                </button>
+                                
+                                <div className="flex items-center gap-3 mb-6">
+                                    <div className="p-3 bg-blue-600/20 rounded-full">
+                                        <LinkIcon className="w-6 h-6 text-blue-500" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-bold text-white">Change Playlist Source</h3>
+                                        <p className="text-xs text-slate-400">Enter a URL to a remote .m3u or .m3u8 file</p>
+                                    </div>
+                                </div>
+
+                                <form onSubmit={handleSourceSubmit} className="space-y-4">
+                                    <input 
+                                        type="url" 
+                                        placeholder="https://example.com/playlist.m3u"
+                                        value={sourceUrlInput}
+                                        onChange={(e) => setSourceUrlInput(e.target.value)}
+                                        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-slate-600"
+                                        autoFocus
+                                        required
+                                    />
+                                    <div className="flex gap-3 pt-2">
+                                        <button type="button" onClick={() => setIsSourceModalOpen(false)} className="flex-1 py-2.5 rounded-lg bg-slate-800 text-slate-300 text-sm font-medium hover:bg-slate-700 transition-colors">
+                                            Cancel
+                                        </button>
+                                        <button type="submit" className="flex-1 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors">
+                                            Load Playlist
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className={`
+                        fixed md:relative inset-y-0 left-0 z-50 
+                        w-[320px] md:w-[350px] bg-slate-900 border-r border-slate-800 
+                        flex flex-col transition-transform duration-300 ease-in-out shadow-2xl md:shadow-none
+                        ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+                    `}>
+                        <div className="p-4 border-b border-slate-800 bg-slate-900 shrink-0 space-y-3">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                                        <Tv className="text-white w-5 h-5" />
+                                    </div>
+                                    <h1 className="font-bold text-xl text-white tracking-tight">CloudStream</h1>
+                                </div>
+                                
+                                <button onClick={() => setIsSourceModalOpen(true)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors" title="Change Source">
+                                    <Settings className="w-4 h-4" />
+                                </button>
+                            </div>
+
+                            <div className="relative">
+                                <Search className="absolute left-3 top-2.5 text-slate-500 w-4 h-4" />
+                                <input 
+                                    type="text" 
+                                    placeholder="Search channels..." 
+                                    value={searchTerm}
+                                    onChange={e => setSearchTerm(e.target.value)}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 pl-9 pr-4 text-sm text-slate-200 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition-all placeholder-slate-600"
+                                />
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <button 
+                                    onClick={() => onCheckConnectivity(filteredChannels)}
+                                    disabled={isChecking}
+                                    className={`flex-1 flex items-center justify-center gap-2 py-1.5 rounded-md text-xs font-medium border transition-all ${
+                                        isChecking 
+                                        ? 'bg-slate-800 border-slate-700 text-slate-400 cursor-not-allowed'
+                                        : 'bg-slate-800 border-slate-700 text-blue-400 hover:bg-slate-700 hover:border-slate-600'
+                                    }`}
+                                >
+                                    {isChecking ? <RotateCw className="w-3 h-3 animate-spin" /> : <Wifi className="w-3 h-3" />}
+                                    {isChecking ? 'Checking...' : 'Check All'}
+                                </button>
+                                
+                                <button 
+                                    onClick={() => setHideOffline(!hideOffline)}
+                                    className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-all ${
+                                        hideOffline 
+                                        ? 'bg-slate-700 border-slate-600 text-white' 
+                                        : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
+                                    }`}
+                                >
+                                    {hideOffline ? 'Hiding Invalid' : 'Show All'}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="px-4 py-3 border-b border-slate-800 flex gap-2 overflow-x-auto no-scrollbar shrink-0 bg-slate-900/50 backdrop-blur-sm">
+                            <button
+                                onClick={() => setActiveGroup('Favorites')}
+                                className={`whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-colors flex items-center gap-1.5 ${
+                                    activeGroup === 'Favorites' 
+                                    ? 'bg-yellow-600 text-white' 
+                                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                                }`}
+                            >
+                                <Star className={`w-3 h-3 ${activeGroup === 'Favorites' ? 'fill-current' : ''}`} />
+                                Favorites ({favorites.length})
+                            </button>
+
+                            <button
+                                onClick={() => setActiveGroup('All')}
+                                className={`whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-colors ${
+                                    activeGroup === 'All' 
+                                    ? 'bg-blue-600 text-white' 
+                                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                                }`}
+                            >
+                                All ({channels.length})
+                            </button>
+
+                            {groups.map(g => (
+                                <button
+                                    key={g.name}
+                                    onClick={() => setActiveGroup(g.name)}
+                                    className={`whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-colors ${
+                                        activeGroup === g.name
+                                        ? 'bg-blue-600 text-white' 
+                                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                                    }`}
+                                >
+                                    {g.name} ({g.count})
+                                </button>
+                            ))}
+                        </div>
+
+                        <div 
+                            className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1"
+                            onScroll={handleScroll}
+                        >
+                            {filteredChannels.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center py-12 text-slate-500 px-4 text-center">
+                                    <Filter className="w-8 h-8 mb-2 opacity-50" />
+                                    <p className="text-sm">No channels found</p>
+                                    
+                                    {isSecurePage && hideOffline && (
+                                        <div className="mt-4 p-3 bg-slate-800 rounded-lg text-xs text-left max-w-[240px]">
+                                            <div className="flex items-center gap-2 mb-1 text-yellow-500 font-bold">
+                                                <ShieldAlert size={14} />
+                                                <span>GitHub Pages / HTTPS Issue?</span>
+                                            </div>
+                                            <p className="text-slate-400 mb-2">
+                                                Secure pages block insecure (HTTP) streams. All your channels might be hidden.
+                                            </p>
+                                            <button 
+                                                onClick={() => setHideOffline(false)}
+                                                className="w-full py-1 bg-slate-700 hover:bg-slate-600 rounded text-slate-200 transition-colors"
+                                            >
+                                                Disable "Hide Invalid"
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {!isSecurePage && hideOffline && <p className="text-xs text-slate-600 mt-1">"Hide Invalid" is active.</p>}
+                                    {activeGroup === 'Favorites' && <p className="text-xs text-slate-600 mt-1">Click the star icon to add favorites.</p>}
+                                </div>
+                            ) : (
+                                filteredChannels.slice(0, visibleCount).map((channel, index) => {
+                                    const status = channelStatuses[channel.id] || 'unknown';
+                                    const isOffline = status === 'offline';
+                                    const isFavorite = favorites.some(f => f.url === channel.url);
+                                    const isSelected = selectedChannel?.url === channel.url;
+
+                                    return (
+                                        <div 
+                                            key={`${channel.id}-${index}`}
+                                            onClick={() => {
+                                                onSelectChannel(channel);
+                                                if (window.innerWidth < 768) setIsOpen(false); 
+                                            }}
+                                            className={`w-full p-2.5 rounded-xl flex items-center gap-3 transition-all group relative cursor-pointer border ${
+                                                isSelected 
+                                                ? 'bg-blue-600/10 border-blue-600/30 shadow-[0_0_15px_rgba(37,99,235,0.1)]' 
+                                                : 'bg-transparent hover:bg-slate-800 border-transparent'
+                                            } ${isOffline ? 'opacity-60 grayscale' : ''}`}
+                                        >
+                                            <div className={`w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center shrink-0 overflow-hidden shadow-sm ${isSelected ? 'ring-1 ring-blue-500/50' : ''}`}>
+                                                {channel.logo ? (
+                                                    <img src={channel.logo} alt="" className="w-full h-full object-contain p-0.5" onError={(e) => e.currentTarget.style.display = 'none'} />
+                                                ) : (
+                                                    <span className="text-xs font-bold text-slate-500">{channel.name.slice(0, 2).toUpperCase()}</span>
+                                                )}
+                                            </div>
+                                            
+                                            <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+                                                <h3 className={`text-sm font-medium truncate leading-tight ${isSelected ? 'text-blue-400' : 'text-slate-200 group-hover:text-white'} ${isOffline ? 'line-through decoration-red-500/50 text-slate-500' : ''}`}>
+                                                    {channel.name}
+                                                </h3>
+                                                <p className="text-[10px] text-slate-500 truncate">{channel.group}</p>
+                                            </div>
+
+                                            <div className="flex items-center gap-1 shrink-0">
+                                                 <div className="flex items-center justify-center w-6 h-6" title={`Status: ${status}`}>
+                                                    {getStatusIcon(status)}
+                                                 </div>
+
+                                                 <button 
+                                                    onClick={(e) => handleCopy(e, channel)}
+                                                    className="p-1.5 rounded-full hover:bg-slate-700 text-slate-500 hover:text-blue-400 transition-colors"
+                                                    title="Copy Channel Info (M3U)"
+                                                 >
+                                                    {copiedId === channel.id ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                                                 </button>
+
+                                                 <button 
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onToggleFavorite(channel);
+                                                    }}
+                                                    className={`p-1.5 rounded-full hover:bg-slate-700 transition-colors ${isFavorite ? 'text-yellow-500' : 'text-slate-500 hover:text-yellow-500'}`}
+                                                    title={isFavorite ? "Remove from Favorites" : "Add to Favorites"}
+                                                 >
+                                                    <Star className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
+                                                 </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                            {visibleCount < filteredChannels.length && (
+                                 <div className="py-4 flex justify-center">
+                                    <div className="w-5 h-5 border-2 border-slate-600 border-t-transparent rounded-full animate-spin"></div>
+                                 </div>
+                            )}
+                        </div>
+                        
+                        <div className="p-3 bg-slate-950 border-t border-slate-800 text-center">
+                            <p className="text-[10px] text-slate-600">
+                                Showing {Math.min(visibleCount, filteredChannels.length)} of {filteredChannels.length} channels
+                            </p>
+                        </div>
+                    </div>
+                </>
+            );
+        };
+
+        // --- APP ---
+
+        const DEFAULT_PLAYLIST = 'https://raw.githubusercontent.com/suxuang/myIPTV/refs/heads/main/ipv6.m3u';
+        const FAVORITES_KEY = 'iptv_favorites_v1';
+        const PLAYLIST_URL_KEY = 'iptv_playlist_url_v1';
+
+        const App = () => {
+            const [playlistUrl, setPlaylistUrl] = useState(() => {
+                return localStorage.getItem(PLAYLIST_URL_KEY) || DEFAULT_PLAYLIST;
+            });
+
+            const [channels, setChannels] = useState([]);
+            const [favorites, setFavorites] = useState(() => {
+                try {
+                    const saved = localStorage.getItem(FAVORITES_KEY);
+                    return saved ? JSON.parse(saved) : [];
+                } catch (e) {
+                    return [];
+                }
+            });
+
+            const [selectedChannel, setSelectedChannel] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [sidebarOpen, setSidebarOpen] = useState(true);
+            const [online, setOnline] = useState(navigator.onLine);
+            const [channelStatuses, setChannelStatuses] = useState({});
+            const [isChecking, setIsChecking] = useState(false);
+            const abortControllerRef = useRef(null);
+
+            useEffect(() => {
+                localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
+            }, [favorites]);
+
+            useEffect(() => {
+                localStorage.setItem(PLAYLIST_URL_KEY, playlistUrl);
+            }, [playlistUrl]);
+
+            const toggleFavorite = (channel) => {
+                setFavorites(prev => {
+                    const exists = prev.some(f => f.url === channel.url);
+                    if (exists) return prev.filter(f => f.url !== channel.url);
+                    return [...prev, channel];
+                });
+            };
+
+            const checkConnectivity = async (channelsToCheck) => {
+                if (isChecking && abortControllerRef.current) {
+                    abortControllerRef.current.abort();
+                }
+                
+                setIsChecking(true);
+                abortControllerRef.current = new AbortController();
+                const mainSignal = abortControllerRef.current.signal;
+
+                const BATCH_SIZE = 12; 
+                const TIMEOUT_MS = 2500;
+
+                const checkUrl = async (url, id) => {
+                    try {
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+                        
+                        const response = await fetch(url, { method: 'GET', signal: controller.signal });
+                        clearTimeout(timeoutId);
+                        
+                        if (response.ok) return { id, status: 'online' };
+                        return { id, status: 'offline' };
+                    } catch (e) {
+                        return { id, status: 'offline' };
+                    }
+                };
+
+                const processBatch = async (batch) => {
+                    setChannelStatuses(prev => {
+                        const next = { ...prev };
+                        batch.forEach(c => next[c.id] = 'testing');
+                        return next;
+                    });
+
+                    const promises = batch.map(c => checkUrl(c.url, c.id));
+                    const results = await Promise.all(promises);
+
+                    if (mainSignal.aborted) return;
+
+                    setChannelStatuses(prev => {
+                        const next = { ...prev };
+                        results.forEach(r => next[r.id] = r.status);
+                        return next;
+                    });
+                };
+
+                try {
+                    const uniqueChannels = Array.from(new Map(channelsToCheck.map(item => [item.url, item])).values());
+                    for (let i = 0; i < uniqueChannels.length; i += BATCH_SIZE) {
+                        if (mainSignal.aborted) break;
+                        const batch = uniqueChannels.slice(i, i + BATCH_SIZE);
+                        await processBatch(batch);
+                    }
+                } finally {
+                    setIsChecking(false);
+                    abortControllerRef.current = null;
+                }
+            };
+
+            useEffect(() => {
+                const handleOnline = () => setOnline(true);
+                const handleOffline = () => setOnline(false);
+                window.addEventListener('online', handleOnline);
+                window.addEventListener('offline', handleOffline);
+
+                const loadChannels = async () => {
+                    try {
+                        setLoading(true);
+                        setError(null);
+                        setChannels([]);
+                        
+                        const data = await fetchAndParseM3U(playlistUrl);
+                        setChannels(data);
+                        
+                        const allChannelsToCheck = [...favorites, ...data];
+                        if (allChannelsToCheck.length > 0) {
+                            checkConnectivity(allChannelsToCheck);
+                        }
+
+                    } catch (err) {
+                        setError("Failed to load channel list. Please check the URL or your internet connection.");
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+
+                loadChannels();
+
+                const handleResize = () => {
+                    if (window.innerWidth < 768) setSidebarOpen(false);
+                    else setSidebarOpen(true);
+                };
+                handleResize(); 
+                window.addEventListener('resize', handleResize);
+                
+                return () => {
+                    window.removeEventListener('resize', handleResize);
+                    window.removeEventListener('online', handleOnline);
+                    window.removeEventListener('offline', handleOffline);
+                    if (abortControllerRef.current) abortControllerRef.current.abort();
+                };
+            }, [playlistUrl]);
+
+            const groups = useMemo(() => extractGroups(channels), [channels]);
+
+            const handleChannelError = () => {
+                if (selectedChannel) {
+                    setChannelStatuses(prev => ({ ...prev, [selectedChannel.id]: 'offline' }));
+                }
+            };
+
+            const handleChannelSuccess = () => {
+                if (selectedChannel) {
+                    setChannelStatuses(prev => ({ ...prev, [selectedChannel.id]: 'online' }));
+                }
+            };
+
+            return (
+                <div className="flex h-screen w-screen bg-black text-slate-200 overflow-hidden relative">
+                    <ChannelList 
+                        channels={channels}
+                        groups={groups}
+                        favorites={favorites}
+                        selectedChannel={selectedChannel}
+                        onSelectChannel={setSelectedChannel}
+                        onToggleFavorite={toggleFavorite}
+                        isOpen={sidebarOpen}
+                        setIsOpen={setSidebarOpen}
+                        channelStatuses={channelStatuses}
+                        onCheckConnectivity={checkConnectivity}
+                        isChecking={isChecking}
+                        onUpdateSource={setPlaylistUrl}
+                    />
+
+                    <div className="flex-1 flex flex-col relative min-w-0">
+                        {!sidebarOpen && (
+                             <div className="absolute top-0 left-0 right-0 z-20 p-4 pointer-events-none flex justify-between">
+                                <button 
+                                    onClick={() => setSidebarOpen(true)}
+                                    className="pointer-events-auto p-2 bg-slate-900/80 backdrop-blur text-white rounded-lg shadow-lg border border-slate-700 hover:bg-slate-800 transition-colors md:hidden"
+                                >
+                                    <Menu size={20} />
+                                </button>
+                             </div>
+                        )}
+
+                        <div className="flex-1 relative bg-black">
+                            {loading ? (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
+                                    <Loader2 className="w-10 h-10 animate-spin mb-4 text-blue-500" />
+                                    <p className="animate-pulse">Loading Playlist...</p>
+                                </div>
+                            ) : error ? (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center text-red-400 p-8 text-center">
+                                    <WifiOff className="w-16 h-16 mb-4 opacity-50" />
+                                    <h2 className="text-xl font-bold mb-2">Connection Failed</h2>
+                                    <p>{error}</p>
+                                    <button 
+                                        onClick={() => setPlaylistUrl(DEFAULT_PLAYLIST)} 
+                                        className="mt-6 px-6 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition-colors"
+                                    >
+                                        Reset to Default Source
+                                    </button>
+                                </div>
+                            ) : (
+                                <VideoPlayer 
+                                    url={selectedChannel?.url || null} 
+                                    poster={selectedChannel?.logo}
+                                    channelName={selectedChannel?.name}
+                                    onError={handleChannelError}
+                                    onSuccess={handleChannelSuccess}
+                                />
+                            )}
+                        </div>
+
+                        {!online && (
+                            <div className="absolute top-0 left-0 right-0 bg-red-600 text-white text-xs text-center py-1 z-50 font-bold tracking-wide">
+                                YOU ARE OFFLINE
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
