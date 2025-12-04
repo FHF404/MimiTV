@@ -674,6 +674,24 @@
                                     <Filter className="w-8 h-8 mb-2 opacity-50" />
                                     <p className="text-sm">没有找到频道</p>
                                     
+                                    {playlists.every(p => !p.active) && (
+                                        <div className="mt-4 p-3 bg-blue-900/20 border border-blue-800 rounded-lg text-xs text-left max-w-[240px]">
+                                            <div className="flex items-center gap-2 mb-1 text-blue-400 font-bold">
+                                                <Settings size={14} />
+                                                <span>提示</span>
+                                            </div>
+                                            <p className="text-slate-400 mb-2 leading-relaxed">
+                                                当前未加载任何直播源。请点击下方按钮去设置中开启。
+                                            </p>
+                                            <button 
+                                                onClick={() => setIsSourceModalOpen(true)}
+                                                className="w-full py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-white transition-colors border border-blue-500 font-medium"
+                                            >
+                                                去添加/开启直播源
+                                            </button>
+                                        </div>
+                                    )}
+
                                     {isSecurePage && hideOffline && (
                                         <div className="mt-4 p-3 bg-slate-800/50 border border-slate-700 rounded-lg text-xs text-left max-w-[240px]">
                                             <div className="flex items-center gap-2 mb-1 text-yellow-500 font-bold">
@@ -795,12 +813,13 @@
                 if (saved) {
                     return JSON.parse(saved);
                 }
-                // 如果没有保存的记录，使用默认源
+                // 如果没有保存的记录，加载默认源但全部设为不活跃（active: false）
+                // 这样打开页面速度快，用户需要手动开启
                 return DEFAULT_SOURCES.map((src, index) => ({
                     id: `def-${index}`,
                     name: src.name,
                     url: src.url,
-                    active: true
+                    active: false // 默认不开启，解决加载慢的问题
                 }));
             });
 
@@ -904,7 +923,7 @@
                     try {
                         const activePlaylists = playlists.filter(p => p.active);
                         if (activePlaylists.length === 0) {
-                            setLoading(false);
+                            setLoading(false); // 没有活跃源，直接结束加载，显示空状态
                             return;
                         }
                         const promises = activePlaylists.map(playlist => 
