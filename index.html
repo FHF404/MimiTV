@@ -1,17 +1,17 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#0f172a">
+    <meta name="theme-color" content="#0f172a"> <!-- Slate-900 -->
     <title>Mimi TV</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Fonts -->
+    <!-- Fonts: Inter -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
     <!-- Babel for JSX compilation in browser -->
@@ -20,26 +20,26 @@
     <style>
       body {
         font-family: 'Inter', sans-serif;
-        background-color: #0f172a; /* slate-900 */
-        color: #e2e8f0; /* slate-200 */
-        overflow: hidden; /* App handles scrolling */
+        background-color: #020617; /* Slate-950 */
+        color: #e2e8f0; /* Slate-200 */
+        overflow: hidden; 
       }
-      /* Custom Scrollbar */
+      /* 自定义深色滚动条 */
       ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
+        width: 6px;
+        height: 6px;
       }
       ::-webkit-scrollbar-track {
-        background: #1e293b; 
+        background: #0f172a; 
       }
       ::-webkit-scrollbar-thumb {
-        background: #475569; 
+        background: #334155; 
         border-radius: 4px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #64748b; 
+        background: #475569; 
       }
-      /* Utilities */
+      /* 工具类 */
       .no-scrollbar::-webkit-scrollbar {
           display: none;
       }
@@ -47,19 +47,21 @@
           -ms-overflow-style: none;
           scrollbar-width: none;
       }
+      .glass-panel {
+          background: rgba(15, 23, 42, 0.95);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+      }
     </style>
 
-    <!-- Import Map for Modules -->
+    <!-- Import Map: 统一使用 React 18 避免版本冲突 -->
     <script type="importmap">
 {
   "imports": {
     "react": "https://esm.sh/react@18.2.0",
     "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
     "lucide-react": "https://esm.sh/lucide-react@0.263.1",
-    "hls.js": "https://esm.sh/hls.js@1.4.10",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0"
+    "hls.js": "https://esm.sh/hls.js@1.4.10"
   }
 }
 </script>
@@ -74,23 +76,67 @@
             Search, Tv, Filter, Wifi, WifiOff, CheckCircle2, RotateCw, 
             Settings, Link as LinkIcon, X, Star, ShieldAlert, Copy, Check, 
             Menu, Loader2, RefreshCw, Volume2, VolumeX, Maximize2, AlertCircle,
-            Plus, Trash2, Power, Edit2
+            Plus, Trash2, Power, Edit2, Layers, Play, Pause
         } from 'lucide-react';
         import Hls from 'hls.js';
 
-        // --- SERVICES ---
+        // --- 1. 服务与解析逻辑 (Services) ---
 
-        // Simple hash function to generate stable IDs from URLs
+        // 简单的哈希函数，用于生成 ID
         const simpleHash = (str) => {
             let hash = 0;
             for (let i = 0; i < str.length; i++) {
                 const char = str.charCodeAt(i);
                 hash = ((hash << 5) - hash) + char;
-                hash = hash & hash; // Convert to 32bit integer
+                hash = hash & hash; 
             }
             return `gen-${Math.abs(hash)}`;
         };
 
+        // 解析 .txt 格式 (频道名,URL 或 #genre#分类)
+        const parseTXT = (content) => {
+            const lines = content.split('\n');
+            const channels = [];
+            let currentGroup = '未分类';
+            
+            for(const line of lines) {
+                const trimmed = line.trim();
+                if(!trimmed) continue;
+                
+                // 处理分组: "#genre#CCTV" 或 "CCTV,#genre#"
+                if(trimmed.includes('#genre#')) {
+                    const parts = trimmed.split(',');
+                    if(parts.length > 0) {
+                        // 通常是 "GroupName,#genre#" 或 "#genre#,GroupName"
+                        currentGroup = parts[0].includes('#genre#') ? parts[1] : parts[0];
+                        if (!currentGroup) currentGroup = '未分类';
+                        currentGroup = currentGroup.replace('#genre#', '').trim();
+                    }
+                    continue;
+                }
+                
+                // 处理 "频道名,URL" 格式
+                if(trimmed.includes(',')) {
+                    const firstCommaIndex = trimmed.indexOf(',');
+                    const name = trimmed.substring(0, firstCommaIndex).trim();
+                    const url = trimmed.substring(firstCommaIndex + 1).trim();
+                    
+                    if(url && (url.startsWith('http') || url.startsWith('rtmp') || url.startsWith('rtsp'))) {
+                         const id = `txt-${simpleHash(url)}`;
+                         channels.push({
+                             id,
+                             name,
+                             url,
+                             group: currentGroup,
+                             logo: undefined // TXT 格式通常没有 logo
+                         });
+                    }
+                }
+            }
+            return channels;
+        };
+
+        // 解析 .m3u 格式
         const parseM3U = (content) => {
             const lines = content.split('\n');
             const channels = [];
@@ -104,30 +150,21 @@
                     if (infoMatch) {
                         const attributes = infoMatch[2];
                         const name = infoMatch[3].trim();
-                        
                         const groupMatch = attributes.match(/group-title="([^"]*)"/);
-                        const group = groupMatch ? groupMatch[1] : 'Uncategorized';
-
+                        const group = groupMatch ? groupMatch[1] : '未分类';
                         const logoMatch = attributes.match(/tvg-logo="([^"]*)"/);
                         const logo = logoMatch ? logoMatch[1] : undefined;
-
                         const idMatch = attributes.match(/tvg-id="([^"]*)"/);
-                        
                         currentChannel = { name, group, logo, id: idMatch ? idMatch[1] : undefined };
                     }
-                } else if (line.startsWith('http')) {
-                    if (line.length < 10 || line.startsWith('rtmp') || line.startsWith('rtsp')) {
+                } else if (line.startsWith('http') || line.startsWith('rtmp') || line.startsWith('rtsp')) {
+                    if (line.length < 5) {
                         currentChannel = {};
                         continue;
                     }
-
                     if (currentChannel.name) {
                         const finalId = currentChannel.id || simpleHash(line);
-                        channels.push({
-                            ...currentChannel,
-                            id: finalId, 
-                            url: line
-                        });
+                        channels.push({ ...currentChannel, id: finalId, url: line });
                         currentChannel = {}; 
                     }
                 }
@@ -135,14 +172,21 @@
             return channels;
         };
 
-        const fetchAndParseM3U = async (url) => {
+        // 统一获取并解析逻辑
+        const fetchAndParsePlaylist = async (url) => {
             try {
                 const response = await fetch(url);
-                if (!response.ok) throw new Error(`Failed to fetch playlist: ${response.statusText}`);
+                if (!response.ok) throw new Error(`无法获取播放列表: ${response.statusText}`);
                 const text = await response.text();
-                return parseM3U(text);
+                
+                // 自动检测格式
+                if (text.trim().startsWith('#EXTM3U') || text.includes('#EXTINF:')) {
+                    return parseM3U(text);
+                } else {
+                    return parseTXT(text);
+                }
             } catch (error) {
-                console.error("M3U Fetch Error:", error);
+                console.error("播放列表获取错误:", error);
                 throw error;
             }
         };
@@ -150,7 +194,7 @@
         const extractGroups = (channels) => {
             const groups = {};
             channels.forEach(ch => {
-                const g = ch.group || 'Other';
+                const g = ch.group || '其他';
                 groups[g] = (groups[g] || 0) + 1;
             });
             return Object.entries(groups)
@@ -158,7 +202,7 @@
                 .sort((a, b) => b.count - a.count);
         };
 
-        // --- COMPONENTS ---
+        // --- 2. 视频播放器组件 (VideoPlayer) ---
 
         const VideoPlayer = ({ url, poster, channelName, onError, onSuccess }) => {
             const videoRef = useRef(null);
@@ -190,51 +234,28 @@
                 const loadStream = () => {
                     if (Hls.isSupported()) {
                         if (hlsRef.current) hlsRef.current.destroy();
-
-                        const hls = new Hls({
-                            enableWorker: true,
-                            lowLatencyMode: true,
-                            backBufferLength: 90,
-                        });
-                        
+                        const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
                         hlsRef.current = hls;
                         hls.loadSource(url);
                         hls.attachMedia(video);
-
                         hls.on(Hls.Events.MANIFEST_PARSED, () => {
                             setLoading(false);
                             onSuccess?.();
-                            video.play().catch(e => console.warn("Autoplay blocked", e));
+                            video.play().catch(e => console.warn("自动播放被阻止", e));
                         });
-
                         hls.on(Hls.Events.ERROR, (event, data) => {
                             if (data.fatal) {
                                 setLoading(false);
                                 if (likelyMixedContent) {
                                     setIsMixedContentError(true);
-                                    setError("Security Error: This secure (HTTPS) page cannot play insecure (HTTP) video streams.");
+                                    setError("安全错误: 混合内容");
                                     onError?.();
                                     hls.destroy();
                                     return;
                                 }
-
-                                switch (data.type) {
-                                    case Hls.ErrorTypes.NETWORK_ERROR:
-                                        setError("Network error: Unable to connect to stream.");
-                                        onError?.();
-                                        hls.startLoad();
-                                        break;
-                                    case Hls.ErrorTypes.MEDIA_ERROR:
-                                        setError("Media error: Stream format issue.");
-                                        onError?.();
-                                        hls.recoverMediaError();
-                                        break;
-                                    default:
-                                        hls.destroy();
-                                        setError("Stream is currently offline or incompatible.");
-                                        onError?.();
-                                        break;
-                                }
+                                setError("流媒体错误");
+                                onError?.();
+                                hls.destroy();
                             }
                         });
                     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -246,67 +267,47 @@
                         });
                         video.addEventListener('error', () => {
                             setLoading(false);
-                            if (likelyMixedContent) {
-                                setIsMixedContentError(true);
-                                setError("Security Error: Browser blocked HTTP stream.");
-                            } else {
-                                setError("Native playback error.");
-                            }
+                            setError("原生播放错误");
                             onError?.();
                         });
                     } else {
                         setLoading(false);
-                        setError("Your browser does not support HLS playback.");
+                        setError("浏览器不支持");
                         onError?.();
                     }
                 };
-
                 loadStream();
-
-                return () => {
-                    if (hlsRef.current) hlsRef.current.destroy();
-                };
+                return () => { if (hlsRef.current) hlsRef.current.destroy(); };
             }, [url]);
-
-            const toggleMute = () => {
-                if (videoRef.current) {
-                    videoRef.current.muted = !videoRef.current.muted;
-                    setIsMuted(videoRef.current.muted);
-                }
-            };
-
-            const toggleFullScreen = () => {
-                if (videoRef.current) {
-                    if (document.fullscreenElement) {
-                        document.exitFullscreen();
-                    } else {
-                        videoRef.current.requestFullscreen();
-                    }
-                }
-            };
 
             const reloadStream = () => {
                 if (url) {
                     setError(null);
-                    setIsMixedContentError(false);
                     setLoading(true);
                     if (hlsRef.current) {
                         hlsRef.current.loadSource(url);
                         hlsRef.current.attachMedia(videoRef.current);
-                    } else {
-                        const video = videoRef.current;
-                        if(video) video.src = url;
+                    } else if (videoRef.current) {
+                        videoRef.current.src = url;
                     }
                 }
             };
 
+            const togglePlay = () => {
+                if(videoRef.current) {
+                    if(videoRef.current.paused) videoRef.current.play();
+                    else videoRef.current.pause();
+                }
+            };
+
+            // 占位符
             if (!url) {
                 return (
-                    <div className="w-full h-full flex flex-col items-center justify-center bg-black text-slate-500">
-                        <div className="w-20 h-20 mb-4 rounded-full bg-slate-800 flex items-center justify-center animate-pulse">
-                            <Maximize2 className="w-8 h-8 opacity-50"/>
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-black text-slate-600 relative overflow-hidden">
+                        <div className="relative z-10 flex flex-col items-center opacity-40">
+                            <Tv className="w-24 h-24 mb-4" strokeWidth={1} />
+                            <h2 className="text-xl font-medium tracking-wide">请选择一个频道</h2>
                         </div>
-                        <p className="text-lg font-medium">Select a channel to start watching</p>
                     </div>
                 );
             }
@@ -314,76 +315,87 @@
             return (
                 <div className="relative w-full h-full bg-black group overflow-hidden flex flex-col justify-center">
                     {loading && (
-                        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                            <Loader2 className="w-10 h-10 text-blue-500 animate-spin" />
-                            <span className="ml-3 text-white font-medium">Loading Stream...</span>
+                        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                            <div className="flex flex-col items-center">
+                                <Loader2 className="w-10 h-10 text-blue-500 animate-spin" />
+                            </div>
                         </div>
                     )}
 
                     {error && (
-                        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/80 text-white p-6 text-center">
-                            {isMixedContentError ? (
-                                <div className="max-w-md bg-slate-900 border border-red-500/50 p-6 rounded-xl shadow-2xl">
-                                    <ShieldAlert className="w-12 h-12 text-red-500 mx-auto mb-4" />
-                                    <h3 className="text-xl font-bold mb-2">Security Block</h3>
-                                    <p className="text-slate-300 mb-4 text-sm">
-                                        This page is secure (HTTPS) but the video stream is not (HTTP). Modern browsers block this for security.
-                                    </p>
-                                    <div className="text-left text-xs text-slate-400 bg-black/50 p-3 rounded mb-4">
-                                        <strong>How to fix:</strong><br/>
-                                        1. Look for a shield icon or "Not Secure" in your address bar.<br/>
-                                        2. Click "Site Settings" or the icon.<br/>
-                                        3. Allow "Insecure Content" or "Mixed Content".
-                                    </div>
-                                    <p className="text-xs text-slate-500 italic mb-4">Or use a local server instead of GitHub Pages.</p>
-                                </div>
-                            ) : (
-                                <>
-                                    <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
-                                    <h3 className="text-xl font-bold mb-2">Stream Error</h3>
-                                    <p className="text-slate-300 mb-6 max-w-md">{error}</p>
-                                    <button 
-                                        onClick={reloadStream}
-                                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-medium"
-                                    >
-                                        <RefreshCw className="w-4 h-4" /> Try Again
-                                    </button>
-                                </>
-                            )}
+                        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/80 backdrop-blur text-slate-300 p-6 text-center">
+                            <div className="bg-slate-900 p-6 rounded-xl border border-slate-800 max-w-md shadow-2xl">
+                                {isMixedContentError ? (
+                                    <>
+                                        <ShieldAlert className="w-12 h-12 text-yellow-500 mx-auto mb-3" />
+                                        <h3 className="text-lg font-bold mb-2 text-white">安全拦截</h3>
+                                        <p className="text-slate-400 text-sm mb-4">您的浏览器阻止了在 HTTPS 页面上播放 HTTP 视频流。</p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
+                                        <h3 className="text-lg font-bold mb-2 text-white">播放出错</h3>
+                                        <p className="text-slate-400 text-sm mb-4">{error}</p>
+                                        <button onClick={reloadStream} className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-colors text-sm border border-slate-700">
+                                            <RefreshCw className="w-4 h-4" /> 重试
+                                        </button>
+                                    </>
+                                )}
+                            </div>
                         </div>
                     )}
 
                     <video
                         ref={videoRef}
                         className="w-full h-full object-contain"
-                        poster={poster || "https://picsum.photos/1920/1080?blur=10"}
+                        poster={poster}
                         playsInline
                         onPlay={() => setIsPlaying(true)}
                         onPause={() => setIsPlaying(false)}
-                        controlsList="nodownload" 
+                        controlsList="nodownload"
+                        onClick={togglePlay}
                     />
                     
-                    <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/90 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center gap-4 z-10 pointer-events-none">
-                        <div className="pointer-events-auto flex items-center gap-4 w-full">
-                            <div className="flex-1">
-                                <h2 className="text-white font-bold text-lg drop-shadow-md truncate">{channelName || "Unknown Channel"}</h2>
-                                <div className="flex items-center gap-2 text-xs text-slate-300">
-                                   <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                                   LIVE
+                    {/* 控制栏 */}
+                    <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-black/90 via-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center gap-6 z-10 pointer-events-none">
+                        <div className="pointer-events-auto flex items-center gap-6 w-full">
+                            
+                            {/* 频道信息 */}
+                            <div className="flex-1 min-w-0">
+                                <h2 className="text-white font-bold text-2xl drop-shadow-md truncate tracking-tight">{channelName || "未知频道"}</h2>
+                                <div className="flex items-center gap-2 text-sm text-blue-400 font-medium mt-1">
+                                   <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
+                                   LIVE STREAM
                                 </div>
                             </div>
 
-                            <button onClick={toggleMute} className="p-2 text-white hover:bg-white/20 rounded-full transition-colors">
-                                {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                            {/* 播放/暂停 */}
+                            <button 
+                                onClick={togglePlay} 
+                                className="p-4 bg-white/10 hover:bg-white/20 text-white rounded-2xl transition-all backdrop-blur-md shadow-lg active:scale-95"
+                                title={isPlaying ? "暂停" : "播放"}
+                            >
+                                {isPlaying ? <Pause size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" />}
                             </button>
-                            <button onClick={toggleFullScreen} className="p-2 text-white hover:bg-white/20 rounded-full transition-colors">
-                                <Maximize2 size={20} />
+
+                            {/* 静音/取消静音 */}
+                            <button onClick={() => {if(videoRef.current) {videoRef.current.muted = !videoRef.current.muted; setIsMuted(videoRef.current.muted)}}} 
+                                className="p-4 bg-white/10 hover:bg-white/20 text-white rounded-2xl transition-all backdrop-blur-md shadow-lg active:scale-95">
+                                {isMuted ? <VolumeX size={32} /> : <Volume2 size={32} />}
+                            </button>
+                            
+                            {/* 全屏 */}
+                            <button onClick={() => {if(videoRef.current) {document.fullscreenElement ? document.exitFullscreen() : videoRef.current.requestFullscreen()}}} 
+                                className="p-4 bg-white/10 hover:bg-white/20 text-white rounded-2xl transition-all backdrop-blur-md shadow-lg active:scale-95">
+                                <Maximize2 size={32} />
                             </button>
                         </div>
                     </div>
                 </div>
             );
         };
+
+        // --- 3. 频道列表组件 (ChannelList) ---
 
         const ChannelList = ({ 
             channels, favorites, groups, selectedChannel, onSelectChannel, onToggleFavorite, 
@@ -395,11 +407,10 @@
             const [hideOffline, setHideOffline] = useState(false);
             const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
             const [copiedId, setCopiedId] = useState(null);
-            const isSecurePage = window.location.protocol === 'https:';
-
-            // New Source Input State
             const [newSourceName, setNewSourceName] = useState('');
             const [newSourceUrl, setNewSourceUrl] = useState('');
+
+            const isSecurePage = window.location.protocol === 'https:';
 
             useEffect(() => {
                 if (favorites.length > 0) setActiveGroup('Favorites');
@@ -415,7 +426,6 @@
                     const lower = searchTerm.toLowerCase();
                     result = result.filter(ch => ch.name.toLowerCase().includes(lower));
                 }
-
                 if (hideOffline) {
                     result = result.filter(ch => channelStatuses[ch.id] !== 'offline');
                 }
@@ -423,16 +433,12 @@
             }, [channels, favorites, activeGroup, searchTerm, hideOffline, channelStatuses]);
 
             const [visibleCount, setVisibleCount] = useState(50);
-            
             const handleScroll = (e) => {
                 const { scrollTop, clientHeight, scrollHeight } = e.currentTarget;
                 if (scrollHeight - scrollTop - clientHeight < 300) {
-                    if (visibleCount < filteredChannels.length) {
-                        setVisibleCount(prev => Math.min(prev + 50, filteredChannels.length));
-                    }
+                    if (visibleCount < filteredChannels.length) setVisibleCount(prev => prev + 50);
                 }
             };
-
             useMemo(() => setVisibleCount(50), [activeGroup, searchTerm, hideOffline]);
 
             const handleAddSource = (e) => {
@@ -446,19 +452,15 @@
 
             const handleCopy = (e, channel) => {
                 e.stopPropagation();
-                // If ID is generated (prefixed by playlist ID or gen-), fallback to name if possible but usually we just want to copy the metadata
-                // We will strip the playlist prefix if it exists to make the copied M3U clean
-                
-                // Original ID logic: playlistID-channelID. 
-                // We want to copy something usable.
-                const cleanId = channel.id.includes('-gen-') ? channel.name : channel.id;
+                // 确保 ID 不包含前缀，如果只是普通复制
+                const cleanId = channel.id.split('-').slice(1).join('-') || channel.id;
                 
                 const parts = [
-                    `#EXTINF:-1`,
-                    `tvg-id="${cleanId}"`,
-                    `tvg-name="${channel.name}"`,
-                    `tvg-logo="${channel.logo || ''}"`,
-                    `group-title="${channel.group || ''}",${channel.name}`
+                  `#EXTINF:-1`,
+                  `tvg-id="${cleanId}"`,
+                  `tvg-name="${channel.name}"`,
+                  `tvg-logo="${channel.logo || ''}"`,
+                  `group-title="${channel.group || ''}",${channel.name}`
                 ];
                 
                 const m3uEntry = `${parts.join(' ')}\n${channel.url}`;
@@ -471,9 +473,9 @@
 
             const getStatusIcon = (status) => {
                 switch(status) {
-                    case 'online': return <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />;
-                    case 'offline': return <WifiOff className="w-3.5 h-3.5 text-red-500" />;
-                    case 'testing': return <RotateCw className="w-3.5 h-3.5 text-yellow-500 animate-spin" />;
+                    case 'online': return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
+                    case 'offline': return <WifiOff className="w-3.5 h-3.5 text-slate-600" />;
+                    case 'testing': return <RotateCw className="w-3.5 h-3.5 text-blue-500 animate-spin" />;
                     default: return <div className="w-2 h-2 rounded-full bg-slate-700" />;
                 }
             };
@@ -484,52 +486,45 @@
                         <div className="fixed inset-0 bg-black/80 z-40 md:hidden" onClick={() => setIsOpen(false)} />
                     )}
 
+                    {/* 直播源管理弹窗 */}
                     {isSourceModalOpen && (
-                        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+                        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
                             <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-2xl p-6 relative flex flex-col max-h-[85vh]">
-                                <button onClick={() => setIsSourceModalOpen(false)} className="absolute top-4 right-4 text-slate-500 hover:text-slate-300">
+                                <button onClick={() => setIsSourceModalOpen(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors">
                                     <X size={20} />
                                 </button>
                                 
                                 <div className="flex items-center gap-3 mb-6 shrink-0">
-                                    <div className="p-3 bg-blue-600/20 rounded-full">
-                                        <Settings className="w-6 h-6 text-blue-500" />
+                                    <div className="p-3 bg-blue-900/30 rounded-lg border border-blue-900/50">
+                                        <Layers className="w-6 h-6 text-blue-500" />
                                     </div>
                                     <div>
-                                        <h3 className="text-lg font-bold text-white">Manage Playlist Sources</h3>
-                                        <p className="text-xs text-slate-400">Add, remove, or toggle multiple IPTV sources</p>
+                                        <h3 className="text-xl font-bold text-white">直播源管理</h3>
+                                        <p className="text-xs text-slate-400">配置您的播放列表 (支持 .m3u, .txt)</p>
                                     </div>
                                 </div>
 
-                                {/* List of Sources */}
                                 <div className="flex-1 overflow-y-auto mb-6 pr-2 space-y-3 custom-scrollbar">
-                                    {playlists.length === 0 && (
-                                        <div className="text-center py-8 text-slate-500 border border-dashed border-slate-700 rounded-lg">
-                                            No playlists added. Add one below.
-                                        </div>
-                                    )}
                                     {playlists.map(pl => (
                                         <div key={pl.id} className="flex items-center gap-3 p-3 bg-slate-950 border border-slate-800 rounded-lg group hover:border-slate-700 transition-colors">
                                             <button 
                                                 onClick={() => onTogglePlaylist(pl.id)}
-                                                className={`p-2 rounded-lg transition-colors ${pl.active ? 'bg-green-500/20 text-green-400' : 'bg-slate-800 text-slate-500'}`}
-                                                title={pl.active ? "Enabled" : "Disabled"}
+                                                className={`p-2 rounded-md transition-all ${pl.active ? 'bg-emerald-500/20 text-emerald-500' : 'bg-slate-800 text-slate-500'}`}
                                             >
                                                 <Power size={18} />
                                             </button>
                                             
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2">
-                                                    <h4 className={`font-medium text-sm truncate ${pl.active ? 'text-white' : 'text-slate-500'}`}>{pl.name}</h4>
-                                                    {!pl.active && <span className="text-[10px] bg-slate-800 px-1.5 rounded text-slate-500">Disabled</span>}
+                                                    <h4 className={`font-medium text-sm truncate ${pl.active ? 'text-slate-200' : 'text-slate-500'}`}>{pl.name}</h4>
+                                                    {!pl.active && <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-500">已禁用</span>}
                                                 </div>
-                                                <p className="text-xs text-slate-600 truncate">{pl.url}</p>
+                                                <p className="text-xs text-slate-600 truncate font-mono">{pl.url}</p>
                                             </div>
 
                                             <button 
                                                 onClick={() => onRemovePlaylist(pl.id)}
-                                                className="p-2 text-slate-500 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors"
-                                                title="Remove Source"
+                                                className="p-2 text-slate-600 hover:text-red-400 hover:bg-slate-900 rounded-md transition-colors"
                                             >
                                                 <Trash2 size={18} />
                                             </button>
@@ -537,33 +532,32 @@
                                     ))}
                                 </div>
 
-                                {/* Add New Source Form */}
-                                <div className="shrink-0 bg-slate-950 p-4 rounded-xl border border-slate-800">
-                                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Add New Source</h4>
+                                <div className="shrink-0 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
+                                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1">
+                                        <Plus size={14} /> 添加新源
+                                    </h4>
                                     <form onSubmit={handleAddSource} className="flex flex-col gap-3">
-                                        <div className="flex gap-3">
-                                            <input 
-                                                type="text" 
-                                                placeholder="Source Name (e.g. My Sports)"
-                                                value={newSourceName}
-                                                onChange={(e) => setNewSourceName(e.target.value)}
-                                                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-blue-500 placeholder-slate-600"
-                                                required
-                                            />
-                                        </div>
+                                        <input 
+                                            type="text" 
+                                            placeholder="源名称 (例如: 我的电视)"
+                                            value={newSourceName}
+                                            onChange={(e) => setNewSourceName(e.target.value)}
+                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                                            required
+                                        />
                                         <input 
                                             type="url" 
-                                            placeholder="Playlist URL (https://...)"
+                                            placeholder="URL (http://... 或 https://...)"
                                             value={newSourceUrl}
                                             onChange={(e) => setNewSourceUrl(e.target.value)}
-                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
                                             required
                                         />
                                         <button 
                                             type="submit"
-                                            className="w-full py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                                            className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors flex items-center justify-center gap-2"
                                         >
-                                            <Plus size={16} /> Add Playlist
+                                            添加直播源
                                         </button>
                                     </form>
                                 </div>
@@ -571,34 +565,35 @@
                         </div>
                     )}
 
+                    {/* 侧边栏 */}
                     <div className={`
                         fixed md:relative inset-y-0 left-0 z-50 
-                        w-[320px] md:w-[350px] bg-slate-900 border-r border-slate-800 
+                        w-[340px] glass-panel border-r border-slate-800 
                         flex flex-col transition-transform duration-300 ease-in-out shadow-2xl md:shadow-none
                         ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
                     `}>
-                        <div className="p-4 border-b border-slate-800 bg-slate-900 shrink-0 space-y-3">
+                        <div className="p-4 border-b border-slate-800 shrink-0 space-y-4 bg-slate-900">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
                                     <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
                                         <Tv className="text-white w-5 h-5" />
                                     </div>
-                                    <h1 className="font-bold text-xl text-white tracking-tight">Mini TV 🐮</h1>
+                                    <h1 className="font-bold text-xl text-white tracking-tight">Mimi TV</h1>
                                 </div>
                                 
-                                <button onClick={() => setIsSourceModalOpen(true)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors" title="Manage Sources">
-                                    <Settings className="w-4 h-4" />
+                                <button onClick={() => setIsSourceModalOpen(true)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700" title="管理直播源">
+                                    <Settings className="w-5 h-5" />
                                 </button>
                             </div>
 
-                            <div className="relative">
-                                <Search className="absolute left-3 top-2.5 text-slate-500 w-4 h-4" />
+                            <div className="relative group">
+                                <Search className="absolute left-3 top-2.5 text-slate-500 w-4 h-4 group-focus-within:text-blue-500 transition-colors" />
                                 <input 
                                     type="text" 
-                                    placeholder="Search channels..." 
+                                    placeholder="搜索频道..." 
                                     value={searchTerm}
                                     onChange={e => setSearchTerm(e.target.value)}
-                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 pl-9 pr-4 text-sm text-slate-200 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition-all placeholder-slate-600"
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 pl-9 pr-4 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition-all"
                                 />
                             </div>
 
@@ -608,12 +603,12 @@
                                     disabled={isChecking}
                                     className={`flex-1 flex items-center justify-center gap-2 py-1.5 rounded-md text-xs font-medium border transition-all ${
                                         isChecking 
-                                        ? 'bg-slate-800 border-slate-700 text-slate-400 cursor-not-allowed'
-                                        : 'bg-slate-800 border-slate-700 text-blue-400 hover:bg-slate-700 hover:border-slate-600'
+                                        ? 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed'
+                                        : 'bg-slate-800 border-slate-700 text-blue-400 hover:bg-slate-700 hover:border-slate-600 hover:text-blue-300'
                                     }`}
                                 >
-                                    {isChecking ? <RotateCw className="w-3 h-3 animate-spin" /> : <Wifi className="w-3 h-3" />}
-                                    {isChecking ? 'Checking...' : 'Check All'}
+                                    {isChecking ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : <Wifi className="w-3.5 h-3.5" />}
+                                    {isChecking ? '检测中...' : '检测有效性'}
                                 </button>
                                 
                                 <button 
@@ -621,82 +616,81 @@
                                     className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-all ${
                                         hideOffline 
                                         ? 'bg-slate-700 border-slate-600 text-white' 
-                                        : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
+                                        : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
                                     }`}
                                 >
-                                    {hideOffline ? 'Hiding Invalid' : 'Show All'}
+                                    {hideOffline ? '仅显示有效' : '显示全部'}
                                 </button>
                             </div>
                         </div>
 
-                        <div className="px-4 py-3 border-b border-slate-800 flex gap-2 overflow-x-auto no-scrollbar shrink-0 bg-slate-900/50 backdrop-blur-sm">
+                        {/* 分类标签 */}
+                        <div className="px-4 py-3 border-b border-slate-800 flex gap-2 overflow-x-auto no-scrollbar shrink-0 bg-slate-900/50">
                             <button
                                 onClick={() => setActiveGroup('Favorites')}
-                                className={`whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-colors flex items-center gap-1.5 ${
+                                className={`whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-all flex items-center gap-1.5 ${
                                     activeGroup === 'Favorites' 
-                                    ? 'bg-yellow-600 text-white' 
-                                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                                    ? 'bg-yellow-600/20 text-yellow-500 border border-yellow-600/50' 
+                                    : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'
                                 }`}
                             >
                                 <Star className={`w-3 h-3 ${activeGroup === 'Favorites' ? 'fill-current' : ''}`} />
-                                Favorites ({favorites.length})
+                                收藏
                             </button>
 
                             <button
                                 onClick={() => setActiveGroup('All')}
-                                className={`whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-colors ${
+                                className={`whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-all ${
                                     activeGroup === 'All' 
-                                    ? 'bg-blue-600 text-white' 
-                                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                                    ? 'bg-blue-600 text-white border border-blue-500' 
+                                    : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'
                                 }`}
                             >
-                                All ({channels.length})
+                                全部
                             </button>
 
                             {groups.map(g => (
                                 <button
                                     key={g.name}
                                     onClick={() => setActiveGroup(g.name)}
-                                    className={`whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-colors ${
+                                    className={`whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-all ${
                                         activeGroup === g.name
-                                        ? 'bg-blue-600 text-white' 
-                                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                                        ? 'bg-blue-600 text-white border border-blue-500' 
+                                        : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'
                                     }`}
                                 >
-                                    {g.name} ({g.count})
+                                    {g.name}
                                 </button>
                             ))}
                         </div>
 
+                        {/* 频道列表 */}
                         <div 
                             className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1"
                             onScroll={handleScroll}
                         >
                             {filteredChannels.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center py-12 text-slate-500 px-4 text-center">
+                                <div className="flex flex-col items-center justify-center py-12 text-slate-600 px-4 text-center">
                                     <Filter className="w-8 h-8 mb-2 opacity-50" />
-                                    <p className="text-sm">No channels found</p>
+                                    <p className="text-sm">没有找到频道</p>
                                     
                                     {isSecurePage && hideOffline && (
-                                        <div className="mt-4 p-3 bg-slate-800 rounded-lg text-xs text-left max-w-[240px]">
+                                        <div className="mt-4 p-3 bg-slate-800/50 border border-slate-700 rounded-lg text-xs text-left max-w-[240px]">
                                             <div className="flex items-center gap-2 mb-1 text-yellow-500 font-bold">
                                                 <ShieldAlert size={14} />
-                                                <span>GitHub Pages / HTTPS Issue?</span>
+                                                <span>HTTPS 问题</span>
                                             </div>
-                                            <p className="text-slate-400 mb-2">
-                                                Secure pages block insecure (HTTP) streams. All your channels might be hidden.
+                                            <p className="text-slate-400 mb-2 leading-relaxed">
+                                                浏览器安全策略可能隐藏了 HTTP 频道。
                                             </p>
                                             <button 
                                                 onClick={() => setHideOffline(false)}
-                                                className="w-full py-1 bg-slate-700 hover:bg-slate-600 rounded text-slate-200 transition-colors"
+                                                className="w-full py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-200 transition-colors border border-slate-600"
                                             >
-                                                Disable "Hide Invalid"
+                                                强制显示全部
                                             </button>
                                         </div>
                                     )}
-
-                                    {!isSecurePage && hideOffline && <p className="text-xs text-slate-600 mt-1">"Hide Invalid" is active.</p>}
-                                    {activeGroup === 'Favorites' && <p className="text-xs text-slate-600 mt-1">Click the star icon to add favorites.</p>}
                                 </div>
                             ) : (
                                 filteredChannels.slice(0, visibleCount).map((channel, index) => {
@@ -712,13 +706,13 @@
                                                 onSelectChannel(channel);
                                                 if (window.innerWidth < 768) setIsOpen(false); 
                                             }}
-                                            className={`w-full p-2.5 rounded-xl flex items-center gap-3 transition-all group relative cursor-pointer border ${
+                                            className={`w-full p-2.5 rounded-lg flex items-center gap-3 transition-all group relative cursor-pointer border ${
                                                 isSelected 
-                                                ? 'bg-blue-600/10 border-blue-600/30 shadow-[0_0_15px_rgba(37,99,235,0.1)]' 
-                                                : 'bg-transparent hover:bg-slate-800 border-transparent'
-                                            } ${isOffline ? 'opacity-60 grayscale' : ''}`}
+                                                ? 'bg-blue-600/10 border-blue-500/30' 
+                                                : 'bg-transparent border-transparent hover:bg-slate-800'
+                                            } ${isOffline ? 'opacity-50 grayscale' : ''}`}
                                         >
-                                            <div className={`w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center shrink-0 overflow-hidden shadow-sm ${isSelected ? 'ring-1 ring-blue-500/50' : ''}`}>
+                                            <div className={`w-10 h-10 rounded bg-slate-800 flex items-center justify-center shrink-0 overflow-hidden ${isSelected ? 'ring-1 ring-blue-500' : ''}`}>
                                                 {channel.logo ? (
                                                     <img src={channel.logo} alt="" className="w-full h-full object-contain p-0.5" onError={(e) => e.currentTarget.style.display = 'none'} />
                                                 ) : (
@@ -727,23 +721,23 @@
                                             </div>
                                             
                                             <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
-                                                <h3 className={`text-sm font-medium truncate leading-tight ${isSelected ? 'text-blue-400' : 'text-slate-200 group-hover:text-white'} ${isOffline ? 'line-through decoration-red-500/50 text-slate-500' : ''}`}>
+                                                <h3 className={`text-sm font-medium truncate leading-tight ${isSelected ? 'text-blue-400' : 'text-slate-200 group-hover:text-white'} ${isOffline ? 'line-through decoration-slate-600 text-slate-500' : ''}`}>
                                                     {channel.name}
                                                 </h3>
                                                 <p className="text-[10px] text-slate-500 truncate">{channel.group}</p>
                                             </div>
 
                                             <div className="flex items-center gap-1 shrink-0">
-                                                 <div className="flex items-center justify-center w-6 h-6" title={`Status: ${status}`}>
+                                                 <div className="flex items-center justify-center w-6 h-6" title={`状态: ${status}`}>
                                                     {getStatusIcon(status)}
                                                  </div>
 
                                                  <button 
                                                     onClick={(e) => handleCopy(e, channel)}
                                                     className="p-1.5 rounded-full hover:bg-slate-700 text-slate-500 hover:text-blue-400 transition-colors"
-                                                    title="Copy Channel Info (M3U)"
+                                                    title="复制 M3U 格式"
                                                  >
-                                                    {copiedId === channel.id ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                                                    {copiedId === channel.id ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
                                                  </button>
 
                                                  <button 
@@ -752,10 +746,9 @@
                                                         onToggleFavorite(channel);
                                                     }}
                                                     className={`p-1.5 rounded-full hover:bg-slate-700 transition-colors ${isFavorite ? 'text-yellow-500' : 'text-slate-500 hover:text-yellow-500'}`}
-                                                    title={isFavorite ? "Remove from Favorites" : "Add to Favorites"}
-                                                 >
+                                                >
                                                     <Star className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
-                                                 </button>
+                                                </button>
                                             </div>
                                         </div>
                                     );
@@ -763,14 +756,14 @@
                             )}
                             {visibleCount < filteredChannels.length && (
                                  <div className="py-4 flex justify-center">
-                                    <div className="w-5 h-5 border-2 border-slate-600 border-t-transparent rounded-full animate-spin"></div>
+                                    <Loader2 className="w-5 h-5 text-slate-500 animate-spin" />
                                  </div>
                             )}
                         </div>
                         
-                        <div className="p-3 bg-slate-950 border-t border-slate-800 text-center">
+                        <div className="p-2 border-t border-slate-800 text-center bg-slate-950">
                             <p className="text-[10px] text-slate-600">
-                                Showing {Math.min(visibleCount, filteredChannels.length)} of {filteredChannels.length} channels
+                                显示 {Math.min(visibleCount, filteredChannels.length)} / {filteredChannels.length} 频道
                             </p>
                         </div>
                     </div>
@@ -778,59 +771,58 @@
             );
         };
 
-        // --- APP ---
+        // --- 4. 主应用逻辑 (App) ---
 
-        const DEFAULT_PLAYLIST = 'https://raw.githubusercontent.com/Guovin/iptv-api/gd/output/ipv4/result.m3u';
+        const DEFAULT_SOURCES = [
+          
+          { name: '城市综合', url: 'https://raw.githubusercontent.com/vbskycn/iptv/master/tv/iptv4.m3u' },
+          { name: '浙江综合', url: 'https://raw.githubusercontent.com/suxuang/myIPTV/refs/heads/main/ipv6.m3u' },
+          { name: '浙江卫视', url: 'https://raw.githubusercontent.com/maitel2020/iptv-self-use/main/iptv.m3u' },
+          { name: '世界综合', url: 'https://freetv.fun/test_channels_new.m3u' },
+          { name: '泰国1', url: 'https://freetv.fun/test_channels_thailand_new.m3u' },
+          { name: '泰国2', url: 'https://akkradet.github.io/IPTV-THAI/FREETV.m3u' },
+          { name: '泰国3', url: 'https://iptv-org.github.io/iptv/languages/tha.m3u' },
+          { name: '台湾', url: 'https://iptv-org.github.io/iptv/countries/tw.m3u' },
+          { name: '港澳台', url: 'https://raw.githubusercontent.com/jisoypub/iptv/main/ipv4_2.m3u' }
+        ];
+
         const FAVORITES_KEY = 'iptv_favorites_v1';
         const PLAYLISTS_KEY = 'iptv_playlists_v1';
 
         const App = () => {
-            // Playlist Management
             const [playlists, setPlaylists] = useState(() => {
                 const saved = localStorage.getItem(PLAYLISTS_KEY);
-                return saved ? JSON.parse(saved) : [
-                    { id: 'default', name: 'Default Source', url: DEFAULT_PLAYLIST, active: true }
-                ];
+                if (saved) {
+                    return JSON.parse(saved);
+                }
+                // 如果没有保存的记录，使用默认源
+                return DEFAULT_SOURCES.map((src, index) => ({
+                    id: `def-${index}`,
+                    name: src.name,
+                    url: src.url,
+                    active: true
+                }));
             });
 
-            // Save playlists persistence
-            useEffect(() => {
-                localStorage.setItem(PLAYLISTS_KEY, JSON.stringify(playlists));
-            }, [playlists]);
+            useEffect(() => { localStorage.setItem(PLAYLISTS_KEY, JSON.stringify(playlists)); }, [playlists]);
 
             const addPlaylist = (name, url) => {
-                const newPlaylist = {
-                    id: `pl-${Date.now()}`,
-                    name,
-                    url,
-                    active: true
-                };
-                setPlaylists(prev => [...prev, newPlaylist]);
+                setPlaylists(prev => [...prev, { id: `pl-${Date.now()}`, name, url, active: true }]);
             };
-
             const removePlaylist = (id) => {
                 setPlaylists(prev => prev.filter(p => p.id !== id));
             };
-
             const togglePlaylist = (id) => {
-                setPlaylists(prev => prev.map(p => 
-                    p.id === id ? { ...p, active: !p.active } : p
-                ));
+                setPlaylists(prev => prev.map(p => p.id === id ? { ...p, active: !p.active } : p));
             };
 
             const [channels, setChannels] = useState([]);
-            
-            // Favorites State
             const [favorites, setFavorites] = useState(() => {
                 try {
                     const saved = localStorage.getItem(FAVORITES_KEY);
                     return saved ? JSON.parse(saved) : [];
-                } catch (e) {
-                    console.error("Failed to load favorites", e);
-                    return [];
-                }
+                } catch (e) { return []; }
             });
-
             const [selectedChannel, setSelectedChannel] = useState(null);
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
@@ -840,30 +832,21 @@
             const [isChecking, setIsChecking] = useState(false);
             const abortControllerRef = useRef(null);
 
-            useEffect(() => {
-                localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
-            }, [favorites]);
+            useEffect(() => { localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites)); }, [favorites]);
 
             const toggleFavorite = (channel) => {
                 setFavorites(prev => {
                     const exists = prev.some(f => f.url === channel.url);
-                    if (exists) {
-                        return prev.filter(f => f.url !== channel.url);
-                    }
+                    if (exists) return prev.filter(f => f.url !== channel.url);
                     return [...prev, channel];
                 });
             };
 
-            // Connectivity Checker Logic
             const checkConnectivity = async (channelsToCheck) => {
-                if (isChecking && abortControllerRef.current) {
-                    abortControllerRef.current.abort();
-                }
-                
+                if (isChecking && abortControllerRef.current) abortControllerRef.current.abort();
                 setIsChecking(true);
                 abortControllerRef.current = new AbortController();
                 const mainSignal = abortControllerRef.current.signal;
-
                 const BATCH_SIZE = 12; 
                 const TIMEOUT_MS = 2500;
 
@@ -871,15 +854,11 @@
                     try {
                         const controller = new AbortController();
                         const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
-                        
                         const response = await fetch(url, { method: 'GET', signal: controller.signal });
                         clearTimeout(timeoutId);
-                        
                         if (response.ok) return { id, status: 'online' };
                         return { id, status: 'offline' };
-                    } catch (e) {
-                        return { id, status: 'offline' };
-                    }
+                    } catch (e) { return { id, status: 'offline' }; }
                 };
 
                 const processBatch = async (batch) => {
@@ -888,12 +867,9 @@
                         batch.forEach(c => next[c.id] = 'testing');
                         return next;
                     });
-
                     const promises = batch.map(c => checkUrl(c.url, c.id));
                     const results = await Promise.all(promises);
-
                     if (mainSignal.aborted) return;
-
                     setChannelStatuses(prev => {
                         const next = { ...prev };
                         results.forEach(r => next[r.id] = r.status);
@@ -902,6 +878,7 @@
                 };
 
                 try {
+                    // 去重，避免重复检测
                     const uniqueChannels = Array.from(new Map(channelsToCheck.map(item => [item.url, item])).values());
                     for (let i = 0; i < uniqueChannels.length; i += BATCH_SIZE) {
                         if (mainSignal.aborted) break;
@@ -924,83 +901,60 @@
                     setLoading(true);
                     setError(null);
                     setChannels([]);
-                    
                     try {
-                        // Get active playlists
                         const activePlaylists = playlists.filter(p => p.active);
-                        
                         if (activePlaylists.length === 0) {
                             setLoading(false);
                             return;
                         }
-
-                        // Fetch all in parallel
                         const promises = activePlaylists.map(playlist => 
-                            fetchAndParseM3U(playlist.url)
+                            fetchAndParsePlaylist(playlist.url)
                                 .then(items => items.map(item => ({
                                     ...item,
-                                    // Prefix ID to prevent collisions between playlists
+                                    // 加上 playlist ID 前缀防止冲突
                                     id: `${playlist.id}-${item.id}`,
-                                    // Optional: You could append playlist name to group, e.g.
-                                    // group: `${item.group} (${playlist.name})`
                                 })))
                                 .catch(err => {
-                                    console.warn(`Failed to load playlist: ${playlist.name}`, err);
-                                    return []; // Return empty array on failure so others can still load
+                                    console.warn(`无法加载播放列表: ${playlist.name}`, err);
+                                    return []; 
                                 })
                         );
-
                         const results = await Promise.all(promises);
-                        // Flatten arrays
                         const mergedChannels = results.flat();
                         setChannels(mergedChannels);
-
-                        // Connectivity Check
                         const allChannelsToCheck = [...favorites, ...mergedChannels];
-                        if (allChannelsToCheck.length > 0) {
-                            checkConnectivity(allChannelsToCheck);
-                        }
-
+                        if (allChannelsToCheck.length > 0) checkConnectivity(allChannelsToCheck);
                     } catch (err) {
-                        setError("Failed to load channels. Please check your internet connection.");
+                        setError("无法加载频道列表，请检查网络设置。");
                     } finally {
                         setLoading(false);
                     }
                 };
-
                 loadChannels();
-
                 const handleResize = () => {
                     if (window.innerWidth < 768) setSidebarOpen(false);
                     else setSidebarOpen(true);
                 };
                 handleResize(); 
                 window.addEventListener('resize', handleResize);
-                
                 return () => {
                     window.removeEventListener('resize', handleResize);
                     window.removeEventListener('online', handleOnline);
                     window.removeEventListener('offline', handleOffline);
                     if (abortControllerRef.current) abortControllerRef.current.abort();
                 };
-            }, [playlists]); // Reload when playlists change
+            }, [playlists]);
 
             const groups = useMemo(() => extractGroups(channels), [channels]);
-
             const handleChannelError = () => {
-                if (selectedChannel) {
-                    setChannelStatuses(prev => ({ ...prev, [selectedChannel.id]: 'offline' }));
-                }
+                if (selectedChannel) setChannelStatuses(prev => ({ ...prev, [selectedChannel.id]: 'offline' }));
             };
-
             const handleChannelSuccess = () => {
-                if (selectedChannel) {
-                    setChannelStatuses(prev => ({ ...prev, [selectedChannel.id]: 'online' }));
-                }
+                if (selectedChannel) setChannelStatuses(prev => ({ ...prev, [selectedChannel.id]: 'online' }));
             };
 
             return (
-                <div className="flex h-screen w-screen bg-black text-slate-200 overflow-hidden relative">
+                <div className="flex h-screen w-screen bg-black text-slate-200 overflow-hidden relative selection:bg-blue-500/30">
                     <ChannelList 
                         channels={channels}
                         groups={groups}
@@ -1013,13 +967,11 @@
                         channelStatuses={channelStatuses}
                         onCheckConnectivity={checkConnectivity}
                         isChecking={isChecking}
-                        
-                        // New Props for Playlist Management
                         playlists={playlists}
                         onAddPlaylist={addPlaylist}
                         onRemovePlaylist={removePlaylist}
                         onTogglePlaylist={togglePlaylist}
-                        onUpdateSource={() => {}} // Deprecated but keeping for prop compatibility if needed
+                        onUpdateSource={() => {}} 
                     />
 
                     <div className="flex-1 flex flex-col relative min-w-0">
@@ -1027,29 +979,31 @@
                              <div className="absolute top-0 left-0 right-0 z-20 p-4 pointer-events-none flex justify-between">
                                 <button 
                                     onClick={() => setSidebarOpen(true)}
-                                    className="pointer-events-auto p-2 bg-slate-900/80 backdrop-blur text-white rounded-lg shadow-lg border border-slate-700 hover:bg-slate-800 transition-colors md:hidden"
+                                    className="pointer-events-auto p-2 bg-slate-900/80 backdrop-blur-md text-white rounded-lg shadow-lg border border-slate-700 hover:bg-slate-800 transition-colors md:hidden"
                                 >
-                                    <Menu size={20} />
+                                    <Menu size={20} strokeWidth={2} />
                                 </button>
                              </div>
                         )}
 
-                        <div className="flex-1 relative bg-black">
+                        <div className="flex-1 relative bg-black shadow-2xl z-0">
                             {loading ? (
-                                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
-                                    <Loader2 className="w-10 h-10 animate-spin mb-4 text-blue-500" />
-                                    <p className="animate-pulse">Loading Playlists...</p>
+                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90">
+                                    <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-4" />
+                                    <p className="text-slate-500 font-medium">正在加载频道列表...</p>
                                 </div>
                             ) : error ? (
-                                <div className="absolute inset-0 flex flex-col items-center justify-center text-red-400 p-8 text-center">
-                                    <WifiOff className="w-16 h-16 mb-4 opacity-50" />
-                                    <h2 className="text-xl font-bold mb-2">Connection Failed</h2>
-                                    <p>{error}</p>
+                                <div className="absolute inset-0 flex flex-col items-center justify-center text-rose-400 p-8 text-center bg-black/90">
+                                    <div className="w-16 h-16 bg-slate-900 rounded-full flex items-center justify-center mb-4">
+                                        <WifiOff className="w-8 h-8 text-slate-500" />
+                                    </div>
+                                    <h2 className="text-xl font-bold mb-2 text-white">连接失败</h2>
+                                    <p className="mb-6 text-slate-400">{error}</p>
                                     <button 
                                         onClick={() => window.location.reload()} 
-                                        className="mt-6 px-6 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition-colors"
+                                        className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors font-medium"
                                     >
-                                        Reload App
+                                        重新加载
                                     </button>
                                 </div>
                             ) : (
@@ -1064,8 +1018,8 @@
                         </div>
 
                         {!online && (
-                            <div className="absolute top-0 left-0 right-0 bg-red-600 text-white text-xs text-center py-1 z-50 font-bold tracking-wide">
-                                YOU ARE OFFLINE
+                            <div className="absolute top-0 left-0 right-0 bg-red-600 text-white text-xs text-center py-1.5 z-50 font-bold tracking-wide shadow-md">
+                                网络已断开
                             </div>
                         )}
                     </div>
