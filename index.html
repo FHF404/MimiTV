@@ -59,6 +59,8 @@
 {
   "imports": {
     "react": "https://esm.sh/react@18.2.0",
+    "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
+    "react/jsx-dev-runtime": "https://esm.sh/react@18.2.0/jsx-dev-runtime",
     "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
     "lucide-react": "https://esm.sh/lucide-react@0.263.1",
     "hls.js": "https://esm.sh/hls.js@1.4.10"
@@ -407,6 +409,7 @@
             const [hideOffline, setHideOffline] = useState(false);
             const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
             const [copiedId, setCopiedId] = useState(null);
+            const categoryScrollRef = useRef(null);
             const [newSourceName, setNewSourceName] = useState('');
             const [newSourceUrl, setNewSourceUrl] = useState('');
 
@@ -441,6 +444,14 @@
             };
             useMemo(() => setVisibleCount(50), [activeGroup, searchTerm, hideOffline]);
 
+            const handleCategoryWheel = (e) => {
+                const el = categoryScrollRef.current;
+                if (!el) return;
+                const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+                if (!delta) return;
+                e.preventDefault();
+                el.scrollLeft += delta;
+            };
             const handleAddSource = (e) => {
                 e.preventDefault();
                 if (newSourceName.trim() && newSourceUrl.trim()) {
@@ -625,10 +636,10 @@
                         </div>
 
                         {/* 分类标签 */}
-                        <div className="px-4 py-3 border-b border-slate-800 flex gap-2 overflow-x-auto no-scrollbar shrink-0 bg-slate-900/50">
+                        <div ref={categoryScrollRef} onWheel={handleCategoryWheel} className="px-4 py-3 border-b border-slate-800 flex gap-2 overflow-x-auto no-scrollbar shrink-0 bg-slate-900/50 overscroll-x-contain scroll-smooth">
                             <button
                                 onClick={() => setActiveGroup('Favorites')}
-                                className={`whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-all flex items-center gap-1.5 ${
+                                className={`shrink-0 whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-all flex items-center gap-1.5 ${
                                     activeGroup === 'Favorites' 
                                     ? 'bg-yellow-600/20 text-yellow-500 border border-yellow-600/50' 
                                     : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'
@@ -640,7 +651,7 @@
 
                             <button
                                 onClick={() => setActiveGroup('All')}
-                                className={`whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-all ${
+                                className={`shrink-0 whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-all ${
                                     activeGroup === 'All' 
                                     ? 'bg-blue-600 text-white border border-blue-500' 
                                     : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'
@@ -653,7 +664,7 @@
                                 <button
                                     key={g.name}
                                     onClick={() => setActiveGroup(g.name)}
-                                    className={`whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-all ${
+                                    className={`shrink-0 whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-all ${
                                         activeGroup === g.name
                                         ? 'bg-blue-600 text-white border border-blue-500' 
                                         : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'
@@ -792,36 +803,21 @@
         // --- 4. 主应用逻辑 (App) ---
 
         const DEFAULT_SOURCES = [
-          
-          { name: '城市综合', url: 'https://raw.githubusercontent.com/vbskycn/iptv/master/tv/iptv4.m3u' },
-          { name: '浙江综合', url: 'https://raw.githubusercontent.com/suxuang/myIPTV/refs/heads/main/ipv6.m3u' },
-          { name: '浙江卫视', url: 'https://raw.githubusercontent.com/maitel2020/iptv-self-use/main/iptv.m3u' },
-          { name: '世界综合', url: 'https://freetv.fun/test_channels_new.m3u' },
-          { name: '泰国1', url: 'https://freetv.fun/test_channels_thailand_new.m3u' },
-          { name: '泰国2', url: 'https://akkradet.github.io/IPTV-THAI/FREETV.m3u' },
-          { name: '泰国3', url: 'https://iptv-org.github.io/iptv/languages/tha.m3u' },
-          { name: '台湾', url: 'https://iptv-org.github.io/iptv/countries/tw.m3u' },
-          { name: '港澳台', url: 'https://raw.githubusercontent.com/jisoypub/iptv/main/ipv4_2.m3u' }
+          { name: 'GitHub 精选可播放', url: 'https://raw.githubusercontent.com/FHF404/MimiTV/main/verified.m3u' }
         ];
 
         const FAVORITES_KEY = 'iptv_favorites_v1';
         const PLAYLISTS_KEY = 'iptv_playlists_v1';
 
         const App = () => {
-            const [playlists, setPlaylists] = useState(() => {
-                const saved = localStorage.getItem(PLAYLISTS_KEY);
-                if (saved) {
-                    return JSON.parse(saved);
-                }
-                // 如果没有保存的记录，加载默认源但全部设为不活跃（active: false）
-                // 这样打开页面速度快，用户需要手动开启
-                return DEFAULT_SOURCES.map((src, index) => ({
+            const [playlists, setPlaylists] = useState(() =>
+                DEFAULT_SOURCES.map((src, index) => ({
                     id: `def-${index}`,
                     name: src.name,
                     url: src.url,
-                    active: false // 默认不开启，解决加载慢的问题
-                }));
-            });
+                    active: true
+                }))
+            );
 
             useEffect(() => { localStorage.setItem(PLAYLISTS_KEY, JSON.stringify(playlists)); }, [playlists]);
 
