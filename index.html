@@ -177,7 +177,7 @@
         // 统一获取并解析逻辑
         const fetchAndParsePlaylist = async (url) => {
             try {
-                const response = await fetch(url);
+                const response = await fetch(url, { cache: 'no-cache' });
                 if (!response.ok) throw new Error(`无法获取播放列表: ${response.statusText}`);
                 const text = await response.text();
                 
@@ -193,6 +193,9 @@
             }
         };
 
+        // 置顶分类(其余按频道数量排序)
+        const PINNED_GROUPS = ['泰国频道'];
+
         const extractGroups = (channels) => {
             const groups = {};
             channels.forEach(ch => {
@@ -201,7 +204,7 @@
             });
             return Object.entries(groups)
                 .map(([name, count]) => ({ name, count }))
-                .sort((a, b) => b.count - a.count);
+                .sort((a, b) => (PINNED_GROUPS.includes(b.name) - PINNED_GROUPS.includes(a.name)) || b.count - a.count);
         };
 
         // --- 2. 视频播放器组件 (VideoPlayer) ---
