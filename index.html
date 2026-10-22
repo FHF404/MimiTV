@@ -474,7 +474,7 @@
                   `group-title="${channel.group || ''}",${channel.name}`
                 ];
                 
-                const m3uEntry = `${parts.join(' ')}\n${channel.url}`;
+                const m3uEntry = `${parts.join(' ')}\n${channel.rawUrl || channel.url}`;
 
                 navigator.clipboard.writeText(m3uEntry).then(() => {
                     setCopiedId(channel.id);
@@ -806,6 +806,17 @@
           { name: 'GitHub 精选可播放', url: 'https://raw.githubusercontent.com/FHF404/MimiTV/main/verified.m3u' }
         ];
 
+        // 没有 CORS 头的流(浏览器无法直连)走 Vercel 转发
+        const PROXY_BASE = 'https://mimitv-hazel.vercel.app/api/proxy';
+        const PROXY_HOSTS = ['live-cdn.ch7.com', 'monomax-uiripn.cdn.byteark.com'];
+        const proxify = (url) => {
+            try {
+                return PROXY_HOSTS.includes(new URL(url).hostname)
+                    ? `${PROXY_BASE}?url=${encodeURIComponent(url)}`
+                    : url;
+            } catch (e) { return url; }
+        };
+
         const FAVORITES_KEY = 'iptv_favorites_v1';
         const PLAYLISTS_KEY = 'iptv_playlists_v1';
 
@@ -928,6 +939,8 @@
                                     ...item,
                                     // 加上 playlist ID 前缀防止冲突
                                     id: `${playlist.id}-${item.id}`,
+                                    rawUrl: item.url,
+                                    url: proxify(item.url),
                                 })))
                                 .catch(err => {
                                     console.warn(`无法加载播放列表: ${playlist.name}`, err);
