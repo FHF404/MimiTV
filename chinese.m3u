@@ -61,39 +61,21 @@ https://ali-m-l.cztv.com/channels/lantian/channel012/1080p.m3u8
 https://tencentplaybusiness.gztv.com/live/zonghes.m3u8
 #EXTINF:-1 tvg-name="湖南经视" group-title="卫视频道",湖南经视
 https://p8.vzan.com/slowlive/415983998730568937/live.m3u8
-#EXTINF:-1 tvg-name="大爱1台" group-title="港澳台频道",大爱1台
-https://pulltv1.wanfudaluye.com/live/tv1.m3u8
-#EXTINF:-1 tvg-name="大爱2台" group-title="港澳台频道",大爱2台
-https://pulltv2.wanfudaluye.com/live/tv2.m3u8
-#EXTINF:-1 tvg-name="大爱海外" group-title="港澳台频道",大爱海外
-https://pulltv3.wanfudaluye.com/live/tv3.m3u8
-#EXTINF:-1 tvg-name="TaiwanPlus" group-title="港澳台频道",TaiwanPlus
-https://bcovlive-a.akamaihd.net/rce33d845cb9e42dfa302c7ac345f7858/ap-northeast-1/6282251407001/playlist.m3u8
-#EXTINF:-1 tvg-name="原住民族电视台" group-title="港澳台频道",原住民族电视台
-https://streamipcfapp.akamaized.net/live/_definst_/live_720/key_b1500.m3u8
-#EXTINF:-1 tvg-name="唯心电视" group-title="港澳台频道",唯心电视
-https://mobile.ccdntech.com/transcoder/_definst_/vod164_Live/live/chunklist_w1177047531.m3u8
-#EXTINF:-1 tvg-name="CGNTV 中文" group-title="港澳台频道",CGNTV 中文
+#EXTINF:-1 tvg-name="CGNTV 中文" group-title="港澳频道",CGNTV 中文
 https://d3e05csss9c272.cloudfront.net/out/v1/f0bf71c57581470fb9379f603e8f5d83/CGNWebLiveCN.m3u8
-#EXTINF:-1 tvg-name="GOOD TV 真理台" group-title="港澳台频道",GOOD TV 真理台
-https://live.streamingfast.net/osmflivech2.m3u8
-#EXTINF:-1 tvg-name="人间卫视" group-title="港澳台频道",人间卫视
-https://5ddce30eb4b55.streamlock.net/bltvhd/bltv1/playlist.m3u8
-#EXTINF:-1 tvg-name="三立新闻" group-title="港澳台频道",三立新闻
-https://stream1.freetv.fun/san-li-xin-wen-3.m3u8
-#EXTINF:-1 tvg-name="TVB News" group-title="港澳台频道",TVB News
+#EXTINF:-1 tvg-name="TVB News" group-title="港澳频道",TVB News
 https://tvp22.sky4k.top/index1.php
-#EXTINF:-1 tvg-name="TVB 财经资讯" group-title="港澳台频道",TVB 财经资讯
+#EXTINF:-1 tvg-name="TVB 财经资讯" group-title="港澳频道",TVB 财经资讯
 https://tvp22.sky4k.top/index2.php
-#EXTINF:-1 tvg-name="澳视澳门 Ch.91" group-title="港澳台频道",澳视澳门 Ch.91
+#EXTINF:-1 tvg-name="澳视澳门 Ch.91" group-title="港澳频道",澳视澳门 Ch.91
 https://live3.tdm.com.mo/ch1/ch1.live/playlist.m3u8
-#EXTINF:-1 tvg-name="澳视体育 Ch.93" group-title="港澳台频道",澳视体育 Ch.93
+#EXTINF:-1 tvg-name="澳视体育 Ch.93" group-title="港澳频道",澳视体育 Ch.93
 https://live3.tdm.com.mo/ch4/sport_ch4.live/playlist.m3u8
-#EXTINF:-1 tvg-name="澳视综艺 Ch.95" group-title="港澳台频道",澳视综艺 Ch.95
+#EXTINF:-1 tvg-name="澳视综艺 Ch.95" group-title="港澳频道",澳视综艺 Ch.95
 https://live3.tdm.com.mo/ch6/hd_ch6.live/playlist.m3u8
-#EXTINF:-1 tvg-name="澳视卫星 Ch.96" group-title="港澳台频道",澳视卫星 Ch.96
+#EXTINF:-1 tvg-name="澳视卫星 Ch.96" group-title="港澳频道",澳视卫星 Ch.96
 https://live3.tdm.com.mo/ch3/ch3.live/playlist.m3u8
-#EXTINF:-1 tvg-name="莲花卫视" group-title="港澳台频道",莲花卫视
+#EXTINF:-1 tvg-name="莲花卫视" group-title="港澳频道",莲花卫视
 https://play-sh.quklive.com/live/1780907795235397.m3u8
 #EXTINF:-1 tvg-name="新加坡 8频道" group-title="新马频道",新加坡 8频道
 https://cdn.qd.je/163189/ch8

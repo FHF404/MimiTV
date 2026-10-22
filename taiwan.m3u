@@ -1,0 +1,41 @@
+#EXTM3U
+#EXTINF:-1 tvg-name="台視" group-title="台湾频道",台視
+https://t.freetv.fun/live/tai-shi-1.m3u8
+#EXTINF:-1 tvg-name="台視新聞" group-title="台湾频道",台視新聞
+https://t.freetv.fun/live/tai-shi-xin-wen.m3u8
+#EXTINF:-1 tvg-name="民視" group-title="台湾频道",民視
+https://t.freetv.fun/live/min-shi-3.m3u8
+#EXTINF:-1 tvg-name="民視新聞" group-title="台湾频道",民視新聞
+https://t.freetv.fun/live/min-shi-xin-wen-1.m3u8
+#EXTINF:-1 tvg-name="三立新聞" group-title="台湾频道",三立新聞
+https://stream1.freetv.fun/san-li-xin-wen-3.m3u8
+#EXTINF:-1 tvg-name="TVBS 亞洲" group-title="台湾频道",TVBS 亞洲
+https://t.freetv.fun/live/tvbsya-zhou.m3u8
+#EXTINF:-1 tvg-name="大愛1台" group-title="台湾频道",大愛1台
+https://pulltv1.wanfudaluye.com/live/tv1.m3u8
+#EXTINF:-1 tvg-name="大愛2台" group-title="台湾频道",大愛2台
+https://pulltv2.wanfudaluye.com/live/tv2.m3u8
+#EXTINF:-1 tvg-name="大愛海外" group-title="台湾频道",大愛海外
+https://pulltv3.wanfudaluye.com/live/tv3.m3u8
+#EXTINF:-1 tvg-name="TaiwanPlus" group-title="台湾频道",TaiwanPlus
+https://bcovlive-a.akamaihd.net/rce33d845cb9e42dfa302c7ac345f7858/ap-northeast-1/6282251407001/playlist.m3u8
+#EXTINF:-1 tvg-name="原住民族電視台" group-title="台湾频道",原住民族電視台
+https://streamipcfapp.akamaized.net/live/_definst_/live_720/key_b1500.m3u8
+#EXTINF:-1 tvg-name="唯心電視" group-title="台湾频道",唯心電視
+https://mobile.ccdntech.com/transcoder/_definst_/vod164_Live/live/chunklist_w1177047531.m3u8
+#EXTINF:-1 tvg-name="人間衛視" group-title="台湾频道",人間衛視
+https://5ddce30eb4b55.streamlock.net/bltvhd/bltv1/playlist.m3u8
+#EXTINF:-1 tvg-name="GOOD TV 真理台" group-title="台湾频道",GOOD TV 真理台
+https://live.streamingfast.net/osmflivech2.m3u8
+#EXTINF:-1 tvg-name="東森幼幼 (YouTube)" group-title="台湾频道",東森幼幼 (YouTube)
+https://ythls.armelin.one/channel/UCiWRSesvSYmY7YOyz0tv_zQ.m3u8
+#EXTINF:-1 tvg-name="三立iNEWS (YouTube)" group-title="台湾频道",三立iNEWS (YouTube)
+https://ythls.armelin.one/channel/UCoNYj9OFHZn3ACmmeRCPwbA.m3u8
+#EXTINF:-1 tvg-name="鏡新聞 (YouTube)" group-title="台湾频道",鏡新聞 (YouTube)
+https://ythls.armelin.one/channel/UC4LjkybVKXCDlneVXlKAbmw.m3u8
+#EXTINF:-1 tvg-name="台視新聞 (YouTube備用)" group-title="台湾频道",台視新聞 (YouTube備用)
+https://ythls.armelin.one/channel/UC8ROUUjHzEQm-ndb69CX8Ww.m3u8
+#EXTINF:-1 tvg-name="民視新聞 (YouTube備用)" group-title="台湾频道",民視新聞 (YouTube備用)
+https://ythls.armelin.one/channel/UC2VmWn8dAqkzlQqvy02E1PA.m3u8
+#EXTINF:-1 tvg-name="公視 PTS (YouTube)" group-title="台湾频道",公視 PTS (YouTube)
+https://ythls.armelin.one/channel/UCXgIO9jJVsX5_2ideiSkfvA.m3u8
